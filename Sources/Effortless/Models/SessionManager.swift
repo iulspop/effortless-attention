@@ -113,14 +113,7 @@ class SessionManager: ObservableObject {
         accumulateElapsed(at: activeIndex)
         logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .completed)
         contexts[activeIndex].todos[todoIndex].completed = true
-
-        // Check if there's a next todo
-        if contexts[activeIndex].hasActiveIntention {
-            lastTickDate = Date()
-        } else {
-            // Queue empty — prompt for new intention
-            NotificationCenter.default.post(name: .needsIntention, object: nil)
-        }
+        advanceAfterTodoFinished()
         notifyChange()
     }
 
@@ -131,13 +124,29 @@ class SessionManager: ObservableObject {
         accumulateElapsed(at: activeIndex)
         logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .interrupted)
         contexts[activeIndex].todos[todoIndex].completed = true
+        advanceAfterTodoFinished()
+        notifyChange()
+    }
 
+    /// After finishing a todo: stay if more in queue, else switch to next context with work, else altar
+    private func advanceAfterTodoFinished() {
+        // Current context still has work
         if contexts[activeIndex].hasActiveIntention {
             lastTickDate = Date()
-        } else {
-            NotificationCenter.default.post(name: .needsIntention, object: nil)
+            return
         }
-        notifyChange()
+
+        // Find next context with an active intention
+        for offset in 1..<contexts.count {
+            let idx = (activeIndex + offset) % contexts.count
+            if contexts[idx].hasActiveIntention {
+                switchTo(index: idx)
+                return
+            }
+        }
+
+        // All contexts done — open altar
+        NotificationCenter.default.post(name: .needsIntention, object: nil)
     }
 
     // MARK: - Context Editing
@@ -162,11 +171,7 @@ class SessionManager: ObservableObject {
         contexts[contextIndex].todos.removeAll { $0.id == todoId }
 
         if wasCurrent && contextIndex == activeIndex {
-            if contexts[activeIndex].hasActiveIntention {
-                lastTickDate = Date()
-            } else {
-                NotificationCenter.default.post(name: .needsIntention, object: nil)
-            }
+            advanceAfterTodoFinished()
         }
         notifyChange()
     }
@@ -225,12 +230,7 @@ class SessionManager: ObservableObject {
         if contexts[activeIndex].todos[todoIndex].isExpired {
             logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .expired)
             contexts[activeIndex].todos[todoIndex].completed = true
-
-            if contexts[activeIndex].hasActiveIntention {
-                lastTickDate = Date()
-            } else {
-                NotificationCenter.default.post(name: .needsIntention, object: nil)
-            }
+            advanceAfterTodoFinished()
             notifyChange()
             return
         }
