@@ -11,6 +11,7 @@ struct AltarView: View {
     @State private var isCreatingNew = false
     @State private var selectedIndex: Int? = nil
     @State private var keyMonitor: Any? = nil
+    @State private var showCopied = false
 
     @State private var currentTime = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -47,6 +48,23 @@ struct AltarView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+            if showCopied {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12))
+                        Text("Copied")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial)
+                    .cornerRadius(8)
+                    .padding(.bottom, 40)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
         .onReceive(timer) { currentTime = $0 }
         .onAppear {
@@ -87,6 +105,18 @@ struct AltarView: View {
                         sessionManager.switchTo(index: sel)
                     }
                     onDismiss()
+                    return nil
+                }
+                return event
+            case 8 where event.modifierFlags.contains(.command): // Cmd+C
+                if let sel = selectedIndex, sel < sessionManager.contexts.count,
+                   let todo = sessionManager.contexts[sel].currentTodo {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(todo.text, forType: .string)
+                    withAnimation(.easeOut(duration: 0.2)) { showCopied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        withAnimation(.easeIn(duration: 0.3)) { showCopied = false }
+                    }
                     return nil
                 }
                 return event
