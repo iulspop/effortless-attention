@@ -304,6 +304,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.orderFront(nil)
 
         chaliceWindow = window
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(chaliceHoverChanged(_:)),
+            name: .chaliceHoverChanged,
+            object: nil
+        )
+    }
+
+    @objc private func chaliceHoverChanged(_ notification: Notification) {
+        guard let window = chaliceWindow,
+              let _ = (notification.object as? NSNumber)?.boolValue else { return }
+        guard let hostingView = window.contentView as? NSHostingView<ChaliceView> else { return }
+
+        let fittingSize = hostingView.fittingSize
+        let width: CGFloat = 280
+        let height = max(120, fittingSize.height)
+
+        // Grow upward from current bottom edge
+        let newY = window.frame.origin.y + window.frame.height - height
+        let newFrame = NSRect(x: window.frame.origin.x, y: newY, width: width, height: height)
+        window.setFrame(newFrame, display: true)
     }
 
     private func hideChalice() {
