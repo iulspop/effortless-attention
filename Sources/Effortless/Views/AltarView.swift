@@ -725,6 +725,8 @@ struct ContextDetailView: View {
                                         Image(systemName: "chevron.up")
                                             .font(.system(size: 10))
                                             .foregroundColor(.secondary.opacity(0.5))
+                                            .frame(width: 28, height: 28)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
 
@@ -734,6 +736,8 @@ struct ContextDetailView: View {
                                         Image(systemName: "chevron.down")
                                             .font(.system(size: 10))
                                             .foregroundColor(.secondary.opacity(0.5))
+                                            .frame(width: 28, height: 28)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
 
@@ -743,6 +747,8 @@ struct ContextDetailView: View {
                                         Image(systemName: "xmark")
                                             .font(.system(size: 10))
                                             .foregroundColor(.secondary.opacity(0.5))
+                                            .frame(width: 28, height: 28)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
                                 }
