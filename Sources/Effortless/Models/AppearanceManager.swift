@@ -22,6 +22,18 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
+enum ChaliceDisplayMode: String, CaseIterable {
+    case menuBarOnly = "menuBarOnly"
+    case menuBarAndFloat = "menuBarAndFloat"
+
+    var displayName: String {
+        switch self {
+        case .menuBarOnly: "Menu Bar Only"
+        case .menuBarAndFloat: "Menu Bar + Float"
+        }
+    }
+}
+
 @MainActor
 class AppearanceManager: ObservableObject {
     static let shared = AppearanceManager()
@@ -33,12 +45,25 @@ class AppearanceManager: ObservableObject {
         }
     }
 
+    @Published var chaliceDisplay: ChaliceDisplayMode {
+        didSet {
+            UserDefaults.standard.set(chaliceDisplay.rawValue, forKey: "chaliceDisplay")
+            NotificationCenter.default.post(name: .chaliceDisplayChanged, object: nil)
+        }
+    }
+
     private init() {
         let saved = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
         self.mode = AppearanceMode(rawValue: saved) ?? .system
+        let savedDisplay = UserDefaults.standard.string(forKey: "chaliceDisplay") ?? "menuBarAndFloat"
+        self.chaliceDisplay = ChaliceDisplayMode(rawValue: savedDisplay) ?? .menuBarAndFloat
     }
 
     func apply() {
         NSApp.appearance = mode.nsAppearance
     }
+}
+
+extension Notification.Name {
+    static let chaliceDisplayChanged = Notification.Name("chaliceDisplayChanged")
 }

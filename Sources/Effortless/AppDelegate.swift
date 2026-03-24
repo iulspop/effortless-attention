@@ -31,11 +31,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         updateMenu()
 
-        // Observe session changes to update menu
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(sessionStateChanged),
             name: .sessionStateChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(chaliceDisplayChanged),
+            name: .chaliceDisplayChanged,
             object: nil
         )
     }
@@ -110,11 +115,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.makeFirstResponder(window.contentView)
 
+        // Lock down: disable Mission Control, Exposé, app switching, Dock
+        NSApp.presentationOptions = [
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication,
+            .disableAppleMenu,
+            .disableMenuBarTransparency,
+            .hideMenuBar,
+            .hideDock
+        ]
+
         altarWindow = window
         hideChalice()
     }
 
     private func dismissAltar() {
+        // Restore normal presentation
+        NSApp.presentationOptions = []
+
         altarWindow?.orderOut(nil)
         altarWindow?.contentView = nil
         altarWindow = nil
@@ -138,7 +158,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             height: windowHeight
         )
 
-        let window = NSWindow(
+        let window = ChaliceWindow(
             contentRect: frame,
             styleMask: .borderless,
             backing: .buffered,
@@ -149,7 +169,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.isMovableByWindowBackground = true
         window.hasShadow = true
         window.orderFront(nil)
 
@@ -194,7 +213,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func beginSession(intention: String, minutes: Int) {
         sessionManager.begin(intention: intention, minutes: minutes)
         dismissAltar()
-        showChalice()
+        if appearanceManager.chaliceDisplay == .menuBarAndFloat {
+            showChalice()
+        }
     }
 
     @objc private func completeSession() {
@@ -214,9 +235,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateMenuBarTitle()
 
         if case .idle = sessionManager.state {
-            // Timer expired
             hideChalice()
             showAltar()
+        }
+    }
+
+    @objc private func chaliceDisplayChanged() {
+        guard case .active = sessionManager.state else { return }
+        if appearanceManager.chaliceDisplay == .menuBarAndFloat {
+            showChalice()
+        } else {
+            hideChalice()
         }
     }
 }
@@ -225,4 +254,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+/// Floating chalice window: click+release cycles corners, click+drag moves freely.
+class ChaliceWindow: NSWindow {
+    private var mouseDownLocation: NSPoint?
+    private var dragThreshold: CGFloat = 5
+    private var isDragging = false
+    /// Corners cycle: top-right → bottom-right → bottom-left → top-left
+    private var cornerIndex = 0
+    private let padding: CGFloat = 20
+
+    override var canBecomeKey: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = NSEvent.mouseLocation
+        isDragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = mouseDownLocation else { return }
+        let current = NSEvent.mouseLocation
+        let distance = hypot(current.x - start.x, current.y - start.y)
+
+        if distance > dragThreshold {
+            isDragging = true
+            // Standard window drag
+            let origin = NSPoint(
+                x: frame.origin.x + event.deltaX,
+                y: frame.origin.y - event.deltaY
+            )
+            setFrameOrigin(origin)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !isDragging {
+            cycleCorner()
+        }
+        mouseDownLocation = nil
+        isDragging = false
+    }
+
+    private func cycleCorner() {
+        guard let screen = NSScreen.main else { return }
+        let area = screen.visibleFrame
+        let w = frame.width
+        let h = frame.height
+
+        cornerIndex = (cornerIndex + 1) % 4
+
+        let origin: NSPoint
+        switch cornerIndex {
+        case 0: // top-right
+            origin = NSPoint(x: area.maxX - w - padding, y: area.maxY - h - padding)
+        case 1: // bottom-right
+            origin = NSPoint(x: area.maxX - w - padding, y: area.minY + padding)
+        case 2: // bottom-left
+            origin = NSPoint(x: area.minX + padding, y: area.minY + padding)
+        case 3: // top-left
+            origin = NSPoint(x: area.minX + padding, y: area.maxY - h - padding)
+        default:
+            origin = frame.origin
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            self.animator().setFrameOrigin(origin)
+        }
+    }
 }

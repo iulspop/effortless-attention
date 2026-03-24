@@ -21,8 +21,22 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Active Session Display")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+
+                Picker("", selection: $appearance.chaliceDisplay) {
+                    ForEach(ChaliceDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
         }
         .padding(24)
-        .frame(width: 280)
+        .frame(width: 320)
     }
 }
