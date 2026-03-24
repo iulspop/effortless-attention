@@ -109,7 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.interruptSession()
         }
         hotkeyManager.setHandler(for: .openAltar) { [weak self] in
-            self?.showAltar()
+            self?.toggleAltar()
         }
         hotkeyManager.setHandler(for: .cycleNext) { [weak self] in
             self?.sessionManager.cycleNext()
@@ -123,6 +123,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - The Altar (Full-Screen Overlay)
+
+    private func toggleAltar() {
+        if altarWindow != nil {
+            // Only dismiss if there's an active context to return to
+            if case .active = sessionManager.state {
+                dismissAltar()
+                if appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                    showChalice()
+                }
+            }
+        } else {
+            showAltar()
+        }
+    }
 
     @objc func showAltar() {
         guard altarWindow == nil else { return }
