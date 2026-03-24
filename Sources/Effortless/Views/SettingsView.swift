@@ -35,6 +35,10 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Launch at login", isOn: $appearance.launchAtLogin)
+                    .font(.system(size: 13, weight: .regular))
+            }
         }
         .padding(24)
         .frame(width: 320)

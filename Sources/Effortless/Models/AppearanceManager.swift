@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 enum AppearanceMode: String, CaseIterable {
     case system
@@ -52,11 +53,22 @@ class AppearanceManager: ObservableObject {
         }
     }
 
+    @Published var launchAtLogin: Bool {
+        didSet {
+            if launchAtLogin {
+                try? SMAppService.mainApp.register()
+            } else {
+                try? SMAppService.mainApp.unregister()
+            }
+        }
+    }
+
     private init() {
         let saved = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
         self.mode = AppearanceMode(rawValue: saved) ?? .system
         let savedDisplay = UserDefaults.standard.string(forKey: "chaliceDisplay") ?? "menuBarAndFloat"
         self.chaliceDisplay = ChaliceDisplayMode(rawValue: savedDisplay) ?? .menuBarAndFloat
+        self.launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
     func apply() {
