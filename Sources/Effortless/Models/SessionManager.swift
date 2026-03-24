@@ -232,6 +232,15 @@ class SessionManager: ObservableObject {
         }
     }
 
+    func moveTodo(todoId: UUID, direction: Int, at contextIndex: Int) {
+        guard contextIndex >= 0, contextIndex < contexts.count else { return }
+        guard let fromIndex = contexts[contextIndex].todos.firstIndex(where: { $0.id == todoId }) else { return }
+        let toIndex = fromIndex + direction
+        guard toIndex >= 0, toIndex < contexts[contextIndex].todos.count else { return }
+        contexts[contextIndex].todos.swapAt(fromIndex, toIndex)
+        notifyChange()
+    }
+
     func removeTodo(todoId: UUID, at contextIndex: Int) {
         guard contextIndex >= 0, contextIndex < contexts.count else { return }
         let wasCurrent = contexts[contextIndex].currentTodo?.id == todoId

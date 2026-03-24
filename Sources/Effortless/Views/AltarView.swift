@@ -720,6 +720,24 @@ struct ContextDetailView: View {
 
                                 if !todo.completed {
                                     Button(action: {
+                                        sessionManager.moveTodo(todoId: todo.id, direction: -1, at: contextIndex)
+                                    }) {
+                                        Image(systemName: "chevron.up")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button(action: {
+                                        sessionManager.moveTodo(todoId: todo.id, direction: 1, at: contextIndex)
+                                    }) {
+                                        Image(systemName: "chevron.down")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button(action: {
                                         sessionManager.removeTodo(todoId: todo.id, at: contextIndex)
                                     }) {
                                         Image(systemName: "xmark")
