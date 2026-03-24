@@ -15,12 +15,20 @@ struct AltarView: View {
         ("q", 5), ("w", 25), ("e", 90)
     ]
 
+    @State private var currentTime = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     var body: some View {
         ZStack {
             Color(nsColor: NSColor.windowBackgroundColor)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                Text(currentTime, format: .dateTime.hour().minute())
+                    .font(.system(size: 15, weight: .light, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 80)
+
                 Spacer()
 
                 Image(systemName: "cup.and.saucer")
@@ -137,6 +145,7 @@ struct AltarView: View {
             }
             return .ignored
         }
+        .onReceive(timer) { currentTime = $0 }
     }
 
     private func selectQuickOption(_ minutes: Int) {
