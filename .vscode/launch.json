@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:effortless-attention}",
+      "name": "Debug Effortless",
+      "target": "Effortless",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug Effortless"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:effortless-attention}",
+      "name": "Release Effortless",
+      "target": "Effortless",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release Effortless"
+    }
+  ]
+}

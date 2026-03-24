@@ -16,22 +16,37 @@ swift build
 
 ## Releasing a New Version
 
-### 1. Build the release `.app` bundle
+### 1. Build the signed release `.app` bundle
 
 ```bash
-./scripts/build-app.sh 0.2.0
+./scripts/build-app.sh 0.3.0
 ```
 
-This outputs:
-- `.build/release/Effortless.app` — the app bundle
+This codesigns the app with the Developer ID certificate and outputs:
+- `.build/release/Effortless.app` — signed app bundle
 - `.build/release/Effortless.zip` — zipped for distribution
 - The SHA256 hash of the zip (you'll need this)
+
+To also notarize (removes all Gatekeeper warnings):
+
+```bash
+./scripts/build-app.sh 0.3.0 --notarize
+```
+
+Notarization requires credentials stored in Keychain via:
+
+```bash
+xcrun notarytool store-credentials "effortless-notarize" \
+  --apple-id "your@email.com" \
+  --team-id "YOURTEAMID" \
+  --password "app-specific-password"
+```
 
 ### 2. Create a GitHub Release
 
 ```bash
-gh release create v0.2.0 .build/release/Effortless.zip \
-  --title "Effortless v0.2.0" \
+gh release create v0.3.0 .build/release/Effortless.zip \
+  --title "Effortless v0.3.0" \
   --notes "Release notes here..."
 ```
 
@@ -44,7 +59,7 @@ In the [homebrew-effortless](https://github.com/iulspop/homebrew-effortless) rep
 
 ```ruby
 cask "effortless" do
-  version "0.2.0"
+  version "0.3.0"
   sha256 "new-sha256-hash-here"
   # ...
 end
@@ -55,15 +70,14 @@ Commit and push to `main`.
 ## Installing
 
 ```bash
-brew tap iulspop/effortless
-brew install --cask effortless
+brew tap iulspop/effortless && brew install --cask effortless
 ```
 
 ### Gatekeeper Note
 
-The app is not code-signed. On first launch, macOS will block it. To open:
+The app is codesigned but not yet notarized. On first launch, macOS may still show a warning. To open:
 
 1. Right-click `Effortless.app` → **Open**, or
 2. Go to **System Settings → Privacy & Security** and click **Open Anyway**
 
-This only needs to be done once.
+This only needs to be done once. Once notarization is added, this step won't be needed.
