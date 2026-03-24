@@ -213,13 +213,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - The Chalice (Floating Overlay)
 
     private func showChalice() {
-        guard chaliceWindow == nil else { return }
-        guard let screen = NSScreen.main else { return }
-
         if let existing = chaliceWindow {
-            existing.orderFront(nil)
+            existing.level = .floating
+            existing.orderFrontRegardless()
             return
         }
+
+        guard let screen = NSScreen.main else { return }
 
         let chaliceView = ChaliceView(sessionManager: sessionManager)
 

@@ -80,6 +80,15 @@ struct AltarView: View {
             case 36: // Enter
                 NotificationCenter.default.post(name: .altarAddToQueue, object: nil)
                 return nil
+            case 53: // Escape
+                if sessionManager.hasActiveIntention {
+                    if let sel = selectedIndex {
+                        sessionManager.switchTo(index: sel)
+                    }
+                    onDismiss()
+                    return nil
+                }
+                return event
             default:
                 // 1-9 jump to context
                 let numKeyCodes: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
@@ -183,7 +192,7 @@ struct AltarView: View {
                         Image(systemName: "arrow.right.circle")
                         Text("Return to session")
                         Spacer()
-                        Text("⌃⌥⌘A")
+                        Text("esc")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundColor(.secondary.opacity(0.5))
                     }
