@@ -55,6 +55,7 @@ class AppearanceManager: ObservableObject {
 
     @Published var launchAtLogin: Bool {
         didSet {
+            UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin")
             if launchAtLogin {
                 try? SMAppService.mainApp.register()
             } else {
@@ -75,7 +76,13 @@ class AppearanceManager: ObservableObject {
         self.mode = AppearanceMode(rawValue: saved) ?? .system
         let savedDisplay = UserDefaults.standard.string(forKey: "chaliceDisplay") ?? "menuBarAndFloat"
         self.chaliceDisplay = ChaliceDisplayMode(rawValue: savedDisplay) ?? .menuBarAndFloat
-        self.launchAtLogin = SMAppService.mainApp.status == .enabled
+        // UserDefaults tracks the user's *intent* — SMAppService status can reset
+        // between debug builds, so we re-register on every launch if user wants it.
+        let userWantsLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? true
+        if userWantsLogin {
+            try? SMAppService.mainApp.register()
+        }
+        self.launchAtLogin = userWantsLogin
         let savedIdle = UserDefaults.standard.integer(forKey: "idleTimeoutMinutes")
         self.idleTimeoutMinutes = savedIdle > 0 ? savedIdle : 5  // default 5 minutes
     }

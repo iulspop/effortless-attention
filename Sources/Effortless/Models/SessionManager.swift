@@ -4,6 +4,7 @@ import Combine
 extension Notification.Name {
     static let sessionStateChanged = Notification.Name("sessionStateChanged")
     static let needsIntention = Notification.Name("needsIntention")
+    static let timerExpired = Notification.Name("timerExpired")
 }
 
 private struct PersistedState: Codable {
@@ -80,6 +81,27 @@ class SessionManager: ObservableObject {
         } else {
             pause()
         }
+    }
+
+    // MARK: - Timer Expiry Actions
+
+    /// Extend the current (expired) todo by adding more minutes
+    func extendTime(minutes: Int) {
+        guard activeIndex >= 0, activeIndex < contexts.count,
+              let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
+        contexts[activeIndex].todos[todoIndex].timeboxMinutes += minutes
+        startTimer()
+        notifyChange()
+    }
+
+    /// Mark the expired todo as complete and advance
+    func completeExpired() {
+        guard activeIndex >= 0, activeIndex < contexts.count,
+              let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
+        logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .expired)
+        contexts[activeIndex].todos[todoIndex].completed = true
+        advanceAfterTodoFinished()
+        notifyChange()
     }
 
     // MARK: - Context Lifecycle
@@ -275,10 +297,10 @@ class SessionManager: ObservableObject {
         lastTickDate = now
 
         if contexts[activeIndex].todos[todoIndex].isExpired {
-            logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .expired)
-            contexts[activeIndex].todos[todoIndex].completed = true
-            advanceAfterTodoFinished()
-            notifyChange()
+            // Don't auto-complete — prompt user to extend or mark complete
+            stopTimer()
+            remainingTimeFormatted = "0:00"
+            NotificationCenter.default.post(name: .timerExpired, object: nil)
             return
         }
 

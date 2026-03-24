@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var chaliceWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var resumeWindow: NSWindow?
+    private var expiryWindow: NSWindow?
     private var idleTimer: Timer?
     private let sessionManager = SessionManager()
     private let appearanceManager = AppearanceManager.shared
@@ -49,6 +50,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(needsIntention),
             name: .needsIntention,
+            object: nil
+        )
+
+        // Listen for timer expiry
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(timerExpired),
+            name: .timerExpired,
             object: nil
         )
 
@@ -467,6 +476,72 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Queue empty on active context — open altar to prompt
         hideChalice()
         showAltar()
+    }
+
+    @objc private func timerExpired() {
+        hideChalice()
+        showExpiryAltar()
+    }
+
+    private func showExpiryAltar() {
+        guard expiryWindow == nil else { return }
+        guard let screen = NSScreen.main else { return }
+
+        let todoText = sessionManager.activeContext?.currentTodo?.text ?? "your intention"
+
+        let expiryView = TimerExpiryView(
+            intentionText: todoText,
+            onExtend: { [weak self] minutes in
+                self?.sessionManager.extendTime(minutes: minutes)
+                self?.dismissExpiryAltar()
+                if self?.appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                    self?.showChalice()
+                }
+                self?.updateMenu()
+                self?.updateMenuBarTitle()
+            },
+            onComplete: { [weak self] in
+                self?.sessionManager.completeExpired()
+                self?.dismissExpiryAltar()
+            }
+        )
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSHostingView(rootView: expiryView)
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.ignoresMouseEvents = false
+        window.makeKeyAndOrderFront(nil)
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeFirstResponder(window.contentView)
+
+        NSApp.presentationOptions = [
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication,
+            .disableAppleMenu,
+            .disableMenuBarTransparency,
+            .hideMenuBar,
+            .hideDock
+        ]
+
+        expiryWindow = window
+    }
+
+    private func dismissExpiryAltar() {
+        NSApp.presentationOptions = []
+        expiryWindow?.orderOut(nil)
+        expiryWindow?.contentView = nil
+        expiryWindow = nil
     }
 
     @objc private func chaliceDisplayChanged() {
