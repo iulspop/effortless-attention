@@ -3,6 +3,7 @@ import Combine
 
 extension Notification.Name {
     static let sessionStateChanged = Notification.Name("sessionStateChanged")
+    static let needsIntention = Notification.Name("needsIntention")
 }
 
 private struct PersistedState: Codable {
@@ -12,12 +13,8 @@ private struct PersistedState: Codable {
 
 @MainActor
 class SessionManager: ObservableObject {
-    enum State {
-        case idle
-        case active(contexts: [CognitiveContext], activeIndex: Int)
-    }
-
-    @Published var state: State = .idle
+    @Published var contexts: [CognitiveContext] = []
+    @Published var activeIndex: Int = 0
     @Published var remainingTimeFormatted: String = ""
 
     private var timer: Timer?
@@ -30,95 +27,115 @@ class SessionManager: ObservableObject {
 
     // MARK: - Computed Properties
 
-    var contexts: [CognitiveContext] {
-        if case .active(let contexts, _) = state { return contexts }
-        return []
-    }
-
-    var activeIndex: Int? {
-        if case .active(_, let index) = state { return index }
-        return nil
-    }
-
     var activeContext: CognitiveContext? {
-        guard case .active(let contexts, let index) = state else { return nil }
-        guard index >= 0 && index < contexts.count else { return nil }
-        return contexts[index]
+        guard !contexts.isEmpty, activeIndex >= 0, activeIndex < contexts.count else { return nil }
+        return contexts[activeIndex]
+    }
+
+    /// Whether the active context has a running intention
+    var hasActiveIntention: Bool {
+        activeContext?.hasActiveIntention ?? false
     }
 
     // MARK: - Context Lifecycle
 
     func addContext(label: String, intention: String, minutes: Int) {
-        let ctx = CognitiveContext(label: label, intention: intention, timeboxMinutes: minutes)
+        let todo = TodoItem(text: intention, timeboxMinutes: minutes)
+        let ctx = CognitiveContext(label: label, todos: [todo])
 
-        switch state {
-        case .idle:
-            state = .active(contexts: [ctx], activeIndex: 0)
-            startTimer()
-        case .active(var contexts, let activeIndex):
+        if contexts.isEmpty {
             contexts.append(ctx)
-            state = .active(contexts: contexts, activeIndex: activeIndex)
+            activeIndex = 0
+            startTimer()
+        } else {
+            contexts.append(ctx)
+        }
+        notifyChange()
+    }
+
+    func addTodoToActiveContext(text: String, minutes: Int) {
+        guard !contexts.isEmpty, activeIndex >= 0, activeIndex < contexts.count else { return }
+        let todo = TodoItem(text: text, timeboxMinutes: minutes)
+        contexts[activeIndex].todos.append(todo)
+
+        // If timer wasn't running (no active todo before), start it
+        if timer == nil && contexts[activeIndex].hasActiveIntention {
+            startTimer()
+        }
+        notifyChange()
+    }
+
+    func addTodo(text: String, minutes: Int, at contextIndex: Int) {
+        guard contextIndex >= 0, contextIndex < contexts.count else { return }
+        let todo = TodoItem(text: text, timeboxMinutes: minutes)
+        contexts[contextIndex].todos.append(todo)
+
+        // Start timer if this is the active context and it now has an intention
+        if contextIndex == activeIndex && timer == nil && contexts[contextIndex].hasActiveIntention {
+            startTimer()
         }
         notifyChange()
     }
 
     func switchTo(index: Int) {
-        guard case .active(var contexts, let currentIndex) = state else { return }
-        guard index >= 0 && index < contexts.count else { return }
-        guard index != currentIndex else { return }
+        guard index >= 0, index < contexts.count else { return }
+        guard index != activeIndex else { return }
 
         // Pause current — snapshot elapsed time
-        accumulateElapsed(&contexts, at: currentIndex)
+        accumulateElapsed(at: activeIndex)
 
-        state = .active(contexts: contexts, activeIndex: index)
+        activeIndex = index
         lastTickDate = Date()
+
+        // Ensure timer is running if new context has active intention
+        if contexts[activeIndex].hasActiveIntention && timer == nil {
+            startTimer()
+        }
         notifyChange()
     }
 
     func cycleNext() {
-        guard case .active(let contexts, let index) = state else { return }
-        let next = (index + 1) % contexts.count
+        guard contexts.count > 1 else { return }
+        let next = (activeIndex + 1) % contexts.count
         switchTo(index: next)
     }
 
     func cyclePrev() {
-        guard case .active(let contexts, let index) = state else { return }
-        let prev = (index - 1 + contexts.count) % contexts.count
+        guard contexts.count > 1 else { return }
+        let prev = (activeIndex - 1 + contexts.count) % contexts.count
         switchTo(index: prev)
     }
 
     func complete() {
-        guard case .active(var contexts, let index) = state else { return }
-        accumulateElapsed(&contexts, at: index)
-        let ctx = contexts[index]
-        logContext(ctx, outcome: .completed)
-        contexts.remove(at: index)
+        guard activeIndex >= 0, activeIndex < contexts.count else { return }
+        guard let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
 
-        if contexts.isEmpty {
-            stopTimer()
-            state = .idle
-        } else {
-            let newIndex = min(index, contexts.count - 1)
-            state = .active(contexts: contexts, activeIndex: newIndex)
+        accumulateElapsed(at: activeIndex)
+        logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .completed)
+        contexts[activeIndex].todos[todoIndex].completed = true
+
+        // Check if there's a next todo
+        if contexts[activeIndex].hasActiveIntention {
             lastTickDate = Date()
+        } else {
+            // Queue empty — prompt for new intention
+            NotificationCenter.default.post(name: .needsIntention, object: nil)
         }
         notifyChange()
     }
 
     func interrupt() {
-        guard case .active(var contexts, let index) = state else { return }
-        accumulateElapsed(&contexts, at: index)
-        let ctx = contexts[index]
-        logContext(ctx, outcome: .interrupted)
-        contexts.remove(at: index)
+        guard activeIndex >= 0, activeIndex < contexts.count else { return }
+        guard let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
 
-        if contexts.isEmpty {
-            stopTimer()
-            state = .idle
-        } else {
-            let newIndex = min(index, contexts.count - 1)
-            state = .active(contexts: contexts, activeIndex: newIndex)
+        accumulateElapsed(at: activeIndex)
+        logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .interrupted)
+        contexts[activeIndex].todos[todoIndex].completed = true
+
+        if contexts[activeIndex].hasActiveIntention {
             lastTickDate = Date()
+        } else {
+            NotificationCenter.default.post(name: .needsIntention, object: nil)
         }
         notifyChange()
     }
@@ -126,70 +143,48 @@ class SessionManager: ObservableObject {
     // MARK: - Context Editing
 
     func updateLabel(_ label: String, at index: Int) {
-        guard case .active(var contexts, let activeIndex) = state else { return }
-        guard index >= 0 && index < contexts.count else { return }
+        guard index >= 0, index < contexts.count else { return }
         contexts[index].label = label
-        state = .active(contexts: contexts, activeIndex: activeIndex)
         notifyChange()
     }
 
-    func updateIntention(_ intention: String, at index: Int) {
-        guard case .active(var contexts, let activeIndex) = state else { return }
-        guard index >= 0 && index < contexts.count else { return }
-        contexts[index].intention = intention
-        state = .active(contexts: contexts, activeIndex: activeIndex)
-        notifyChange()
-    }
-
-    func addTodo(_ text: String, at contextIndex: Int) {
-        guard case .active(var contexts, let activeIndex) = state else { return }
-        guard contextIndex >= 0 && contextIndex < contexts.count else { return }
-        contexts[contextIndex].todos.append(TodoItem(text: text))
-        state = .active(contexts: contexts, activeIndex: activeIndex)
-        notifyChange()
-    }
-
-    func toggleTodo(todoId: UUID, at contextIndex: Int) {
-        guard case .active(var contexts, let activeIndex) = state else { return }
-        guard contextIndex >= 0 && contextIndex < contexts.count else { return }
+    func updateTodoText(_ text: String, todoId: UUID, at contextIndex: Int) {
+        guard contextIndex >= 0, contextIndex < contexts.count else { return }
         if let todoIndex = contexts[contextIndex].todos.firstIndex(where: { $0.id == todoId }) {
-            contexts[contextIndex].todos[todoIndex].completed.toggle()
-            state = .active(contexts: contexts, activeIndex: activeIndex)
+            contexts[contextIndex].todos[todoIndex].text = text
             notifyChange()
         }
     }
 
     func removeTodo(todoId: UUID, at contextIndex: Int) {
-        guard case .active(var contexts, let activeIndex) = state else { return }
-        guard contextIndex >= 0 && contextIndex < contexts.count else { return }
+        guard contextIndex >= 0, contextIndex < contexts.count else { return }
+        let wasCurrent = contexts[contextIndex].currentTodo?.id == todoId
         contexts[contextIndex].todos.removeAll { $0.id == todoId }
-        state = .active(contexts: contexts, activeIndex: activeIndex)
+
+        if wasCurrent && contextIndex == activeIndex {
+            if contexts[activeIndex].hasActiveIntention {
+                lastTickDate = Date()
+            } else {
+                NotificationCenter.default.post(name: .needsIntention, object: nil)
+            }
+        }
         notifyChange()
     }
 
     func removeContext(at index: Int) {
-        guard case .active(var contexts, let activeIndex) = state else { return }
-        guard index >= 0 && index < contexts.count else { return }
-
-        accumulateElapsed(&contexts, at: index)
-        let ctx = contexts[index]
-        logContext(ctx, outcome: .interrupted)
+        guard index >= 0, index < contexts.count else { return }
         contexts.remove(at: index)
 
         if contexts.isEmpty {
             stopTimer()
-            state = .idle
+            activeIndex = 0
         } else {
-            let newActive: Int
             if index == activeIndex {
-                newActive = min(index, contexts.count - 1)
+                activeIndex = min(index, contexts.count - 1)
+                lastTickDate = Date()
             } else if index < activeIndex {
-                newActive = activeIndex - 1
-            } else {
-                newActive = activeIndex
+                activeIndex -= 1
             }
-            state = .active(contexts: contexts, activeIndex: newActive)
-            lastTickDate = Date()
         }
         notifyChange()
     }
@@ -214,59 +209,58 @@ class SessionManager: ObservableObject {
     }
 
     private func tick() {
-        guard case .active(var contexts, let index) = state else { return }
-        guard index >= 0 && index < contexts.count else { return }
+        guard activeIndex >= 0, activeIndex < contexts.count else { return }
+        guard let todoIndex = contexts[activeIndex].currentTodoIndex else {
+            remainingTimeFormatted = ""
+            return
+        }
 
-        // Accumulate time on active context
+        // Accumulate time on active todo
         let now = Date()
         if let last = lastTickDate {
-            contexts[index].elapsedSeconds += now.timeIntervalSince(last)
+            contexts[activeIndex].todos[todoIndex].elapsedSeconds += now.timeIntervalSince(last)
         }
         lastTickDate = now
 
-        if contexts[index].isExpired {
-            let ctx = contexts[index]
-            logContext(ctx, outcome: .expired)
-            contexts.remove(at: index)
+        if contexts[activeIndex].todos[todoIndex].isExpired {
+            logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .expired)
+            contexts[activeIndex].todos[todoIndex].completed = true
 
-            if contexts.isEmpty {
-                stopTimer()
-                state = .idle
+            if contexts[activeIndex].hasActiveIntention {
+                lastTickDate = Date()
             } else {
-                let newIndex = min(index, contexts.count - 1)
-                state = .active(contexts: contexts, activeIndex: newIndex)
+                NotificationCenter.default.post(name: .needsIntention, object: nil)
             }
             notifyChange()
             return
         }
 
-        state = .active(contexts: contexts, activeIndex: index)
-
-        let remaining = Int(contexts[index].remainingSeconds)
+        let remaining = Int(contexts[activeIndex].todos[todoIndex].remainingSeconds)
         let minutes = remaining / 60
         let seconds = remaining % 60
         remainingTimeFormatted = String(format: "%d:%02d", minutes, seconds)
         notifyChange()
     }
 
-    private func accumulateElapsed(_ contexts: inout [CognitiveContext], at index: Int) {
-        guard index >= 0 && index < contexts.count else { return }
+    private func accumulateElapsed(at index: Int) {
+        guard index >= 0, index < contexts.count else { return }
+        guard let todoIndex = contexts[index].currentTodoIndex else { return }
         let now = Date()
         if let last = lastTickDate {
-            contexts[index].elapsedSeconds += now.timeIntervalSince(last)
+            contexts[index].todos[todoIndex].elapsedSeconds += now.timeIntervalSince(last)
         }
         lastTickDate = now
     }
 
     // MARK: - Logging
 
-    private func logContext(_ ctx: CognitiveContext, outcome: Session.Outcome) {
+    private func logTodo(_ todo: TodoItem, context ctx: CognitiveContext, outcome: Session.Outcome) {
         let session = Session(
-            id: ctx.id,
+            id: todo.id,
             label: ctx.label,
-            intention: ctx.intention,
-            timeboxMinutes: ctx.timeboxMinutes,
-            elapsedSeconds: ctx.elapsedSeconds,
+            intention: todo.text,
+            timeboxMinutes: todo.timeboxMinutes,
+            elapsedSeconds: todo.elapsedSeconds,
             todos: ctx.todos,
             startedAt: ctx.createdAt,
             endedAt: Date(),
@@ -289,8 +283,7 @@ class SessionManager: ObservableObject {
     }
 
     private func persistState() {
-        guard case .active(let contexts, let activeIndex) = state else {
-            // Idle — remove state file
+        if contexts.isEmpty {
             try? FileManager.default.removeItem(at: Self.stateFile)
             return
         }
@@ -308,8 +301,10 @@ class SessionManager: ObservableObject {
         guard let data = try? Data(contentsOf: Self.stateFile) else { return }
         guard let persisted = try? JSONDecoder().decode(PersistedState.self, from: data) else { return }
         guard !persisted.contexts.isEmpty else { return }
-        let index = min(persisted.activeIndex, persisted.contexts.count - 1)
-        state = .active(contexts: persisted.contexts, activeIndex: index)
-        startTimer()
+        contexts = persisted.contexts
+        activeIndex = min(persisted.activeIndex, persisted.contexts.count - 1)
+        if contexts[activeIndex].hasActiveIntention {
+            startTimer()
+        }
     }
 }

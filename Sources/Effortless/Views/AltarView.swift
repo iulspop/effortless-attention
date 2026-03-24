@@ -1,14 +1,24 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let altarAddToQueue = Notification.Name("altarAddToQueue")
+}
+
 struct AltarView: View {
     @ObservedObject var sessionManager: SessionManager
     var onDismiss: () -> Void
 
     @State private var isCreatingNew = false
     @State private var selectedIndex: Int? = nil
+    @State private var keyMonitor: Any? = nil
 
     @State private var currentTime = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// Whether the workspace (not a text field) should handle keyboard shortcuts
+    private var isWorkspaceMode: Bool {
+        !sessionManager.contexts.isEmpty && !isCreatingNew
+    }
 
     var body: some View {
         ZStack {
@@ -40,6 +50,53 @@ struct AltarView: View {
         .onReceive(timer) { currentTime = $0 }
         .onAppear {
             selectedIndex = sessionManager.activeIndex
+            installKeyMonitor()
+        }
+        .onDisappear {
+            removeKeyMonitor()
+        }
+    }
+
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Don't intercept if a text field has focus
+            if let firstResponder = NSApp.keyWindow?.firstResponder,
+               firstResponder is NSTextView || firstResponder is NSTextField {
+                return event
+            }
+
+            guard isWorkspaceMode else { return event }
+
+            switch event.keyCode {
+            case 126: // ↑
+                moveSelection(-1)
+                return nil
+            case 125: // ↓
+                moveSelection(1)
+                return nil
+            case 45: // N
+                isCreatingNew = true
+                return nil
+            case 36: // Enter
+                NotificationCenter.default.post(name: .altarAddToQueue, object: nil)
+                return nil
+            default:
+                // 1-9 jump to context
+                let numKeyCodes: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
+                if let num = numKeyCodes[event.keyCode],
+                   num >= 1, num <= sessionManager.contexts.count {
+                    selectedIndex = num - 1
+                    return nil
+                }
+                return event
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 
@@ -67,7 +124,8 @@ struct AltarView: View {
             } else if let idx = selectedIndex, idx < sessionManager.contexts.count {
                 ContextDetailView(
                     sessionManager: sessionManager,
-                    contextIndex: idx
+                    contextIndex: idx,
+                    onDismiss: onDismiss
                 )
                 .frame(maxWidth: .infinity)
                 .id(idx)
@@ -79,6 +137,14 @@ struct AltarView: View {
             }
         }
         .frame(maxWidth: 900, maxHeight: 500)
+    }
+
+    private func moveSelection(_ delta: Int) {
+        let count = sessionManager.contexts.count
+        guard count > 0 else { return }
+        let current = selectedIndex ?? 0
+        let next = (current + delta + count) % count
+        selectedIndex = next
     }
 
     private var contextSidebar: some View {
@@ -93,6 +159,10 @@ struct AltarView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.circle")
                     Text("New Context")
+                    Spacer()
+                    Text("n")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.5))
                 }
                 .font(.system(size: 13, weight: .regular, design: .serif))
                 .foregroundColor(.secondary)
@@ -101,8 +171,8 @@ struct AltarView: View {
 
             Spacer().frame(height: 24)
 
-            // Dismiss button — only if there's an active context
-            if sessionManager.activeIndex != nil {
+            // Dismiss button — only if there's an active intention
+            if sessionManager.hasActiveIntention {
                 Button(action: {
                     if let sel = selectedIndex {
                         sessionManager.switchTo(index: sel)
@@ -112,12 +182,15 @@ struct AltarView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.right.circle")
                         Text("Return to session")
+                        Spacer()
+                        Text("⌃⌥⌘A")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.5))
                     }
                     .font(.system(size: 14, weight: .medium, design: .serif))
                     .foregroundColor(.primary)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: [])
             }
         }
         .padding(20)
@@ -156,9 +229,16 @@ struct AltarView: View {
                         }
                     }
 
-                    Text(formatTime(ctx.remainingSeconds))
-                        .font(.system(size: 11, weight: .light, design: .monospaced))
-                        .foregroundColor(.secondary)
+                    if let current = ctx.currentTodo {
+                        Text(current.text)
+                            .font(.system(size: 11, weight: .light, design: .serif))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("No intention")
+                            .font(.system(size: 11, weight: .light, design: .serif))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
                 }
 
                 Spacer()
@@ -177,13 +257,6 @@ struct AltarView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private func formatTime(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        let m = total / 60
-        let s = total % 60
-        return String(format: "%d:%02d", m, s)
     }
 }
 
@@ -326,7 +399,7 @@ struct QuickContextFlow: View {
     }
 }
 
-// MARK: - New Context Creation Flow
+// MARK: - New Context Creation Flow (with label)
 
 struct NewContextFlow: View {
     var onCreated: (String, String, Int) -> Void
@@ -378,8 +451,6 @@ struct NewContextFlow: View {
         }
     }
 
-    // MARK: - Step 1: Label
-
     private var labelStep: some View {
         VStack(spacing: 0) {
             Text("Name this context")
@@ -412,8 +483,6 @@ struct NewContextFlow: View {
         }
     }
 
-    // MARK: - Step 2: Outcome
-
     private var outcomeStep: some View {
         VStack(spacing: 0) {
             Text("What outcome do you seek?")
@@ -445,8 +514,6 @@ struct NewContextFlow: View {
                 }
         }
     }
-
-    // MARK: - Step 3: Minutes
 
     private var minutesStep: some View {
         VStack(spacing: 0) {
@@ -524,19 +591,29 @@ struct NewContextFlow: View {
 struct ContextDetailView: View {
     @ObservedObject var sessionManager: SessionManager
     let contextIndex: Int
+    var onDismiss: () -> Void
 
+    enum AddStep { case idle, text, minutes }
+
+    @State private var addStep: AddStep = .idle
     @State private var newTodoText: String = ""
-    @FocusState private var isTodoInputFocused: Bool
+    @State private var newTodoMinutes: String = ""
+    @FocusState private var isTodoTextFocused: Bool
+    @FocusState private var isTodoMinutesFocused: Bool
+
+    private let quickOptions: [(key: String, minutes: Int)] = [
+        ("q", 5), ("w", 25), ("e", 90)
+    ]
 
     private var context: CognitiveContext? {
-        guard contextIndex < sessionManager.contexts.count else { return nil }
+        guard contextIndex >= 0, contextIndex < sessionManager.contexts.count else { return nil }
         return sessionManager.contexts[contextIndex]
     }
 
     var body: some View {
         if let ctx = context {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 20) {
                     // Label (editable)
                     EditableText(
                         text: ctx.label,
@@ -544,59 +621,44 @@ struct ContextDetailView: View {
                         onCommit: { sessionManager.updateLabel($0, at: contextIndex) }
                     )
 
-                    // Intention (editable)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Intention")
-                            .font(.system(size: 11, weight: .regular))
+                    // Current intention
+                    if let current = ctx.currentTodo {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Current Intention")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+
+                            HStack {
+                                Text(current.text)
+                                    .font(.system(size: 16, weight: .regular, design: .serif))
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text(formatTime(current.remainingSeconds))
+                                    .font(.system(size: 14, weight: .light, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        Text("No active intention — add one below")
+                            .font(.system(size: 14, weight: .light, design: .serif))
                             .foregroundColor(.secondary)
-                            .textCase(.uppercase)
-
-                        EditableText(
-                            text: ctx.intention,
-                            font: .system(size: 16, weight: .regular, design: .serif),
-                            onCommit: { sessionManager.updateIntention($0, at: contextIndex) }
-                        )
-                    }
-
-                    // Timer info
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Remaining")
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                            Text(formatTime(ctx.remainingSeconds))
-                                .font(.system(size: 16, weight: .light, design: .monospaced))
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Timebox")
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                            Text("\(ctx.timeboxMinutes) min")
-                                .font(.system(size: 16, weight: .light, design: .monospaced))
-                        }
                     }
 
                     Divider()
 
-                    // Todo list
+                    // Todo queue
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Todos")
+                        Text("Queue")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundColor(.secondary)
                             .textCase(.uppercase)
 
                         ForEach(ctx.todos) { todo in
                             HStack(spacing: 8) {
-                                Button(action: {
-                                    sessionManager.toggleTodo(todoId: todo.id, at: contextIndex)
-                                }) {
-                                    Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(todo.completed ? .green : .secondary)
-                                        .font(.system(size: 16))
-                                }
-                                .buttonStyle(.plain)
+                                Image(systemName: todo.completed ? "checkmark.circle.fill" : (todo.id == ctx.currentTodo?.id ? "arrow.right.circle.fill" : "circle"))
+                                    .foregroundColor(todo.completed ? .green : (todo.id == ctx.currentTodo?.id ? .accentColor : .secondary))
+                                    .font(.system(size: 16))
 
                                 Text(todo.text)
                                     .font(.system(size: 14, weight: .regular, design: .serif))
@@ -605,38 +667,113 @@ struct ContextDetailView: View {
 
                                 Spacer()
 
-                                Button(action: {
-                                    sessionManager.removeTodo(todoId: todo.id, at: contextIndex)
-                                }) {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary.opacity(0.5))
+                                Text("\(todo.timeboxMinutes)m")
+                                    .font(.system(size: 12, weight: .light, design: .monospaced))
+                                    .foregroundColor(.secondary)
+
+                                if !todo.completed {
+                                    Button(action: {
+                                        sessionManager.removeTodo(todoId: todo.id, at: contextIndex)
+                                    }) {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                             .padding(.vertical, 2)
                         }
 
-                        HStack(spacing: 8) {
-                            Image(systemName: "plus.circle")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 16))
-
-                            TextField("Add todo…", text: $newTodoText)
-                                .font(.system(size: 14, weight: .regular, design: .serif))
-                                .textFieldStyle(.plain)
-                                .focused($isTodoInputFocused)
-                                .onSubmit {
-                                    let trimmed = newTodoText.trimmingCharacters(in: .whitespaces)
-                                    guard !trimmed.isEmpty else { return }
-                                    sessionManager.addTodo(trimmed, at: contextIndex)
-                                    newTodoText = ""
+                        // Add new todo
+                        switch addStep {
+                        case .idle:
+                            Button(action: {
+                                addStep = .text
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    isTodoTextFocused = true
                                 }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "plus.circle")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 16))
+                                    Text("Add to queue…")
+                                        .font(.system(size: 14, weight: .regular, design: .serif))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 4)
+
+                        case .text:
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus.circle")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 16))
+                                TextField("What's the intention?", text: $newTodoText)
+                                    .font(.system(size: 14, weight: .regular, design: .serif))
+                                    .textFieldStyle(.plain)
+                                    .focused($isTodoTextFocused)
+                                    .onSubmit {
+                                        let trimmed = newTodoText.trimmingCharacters(in: .whitespaces)
+                                        guard !trimmed.isEmpty else { return }
+                                        addStep = .minutes
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                            isTodoMinutesFocused = true
+                                        }
+                                    }
+                                    .onExitCommand { cancelAdd() }
+                            }
+                            .padding(.top, 4)
+
+                        case .minutes:
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "clock")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 14))
+                                    Text("Minutes for \"\(newTodoText)\":")
+                                        .font(.system(size: 13, weight: .light, design: .serif))
+                                        .foregroundColor(.secondary)
+                                    TextField("", text: $newTodoMinutes)
+                                        .font(.system(size: 14, weight: .regular, design: .monospaced))
+                                        .textFieldStyle(.plain)
+                                        .frame(width: 50)
+                                        .focused($isTodoMinutesFocused)
+                                        .onSubmit { submitNewTodo() }
+                                        .onExitCommand { cancelAdd() }
+                                }
+
+                                HStack(spacing: 12) {
+                                    ForEach(Array(quickOptions.enumerated()), id: \.offset) { _, option in
+                                        Button(action: { submitNewTodoQuick(option.minutes) }) {
+                                            HStack(spacing: 4) {
+                                                Text(option.key)
+                                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                                    .foregroundColor(.secondary)
+                                                Text("\(option.minutes)m")
+                                                    .font(.system(size: 12, weight: .light, design: .serif))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .padding(.top, 4)
+                            .onKeyPress(characters: .init(charactersIn: "qwe")) { press in
+                                let key = String(press.characters)
+                                if let option = quickOptions.first(where: { $0.key == key }) {
+                                    submitNewTodoQuick(option.minutes)
+                                    return .handled
+                                }
+                                return .ignored
+                            }
                         }
-                        .padding(.top, 4)
                     }
 
-                    Spacer()
+                    Spacer().frame(height: 12)
 
                     // Delete context
                     Button(action: {
@@ -653,7 +790,40 @@ struct ContextDetailView: View {
                 }
                 .padding(24)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .altarAddToQueue)) { _ in
+                if addStep == .idle {
+                    addStep = .text
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isTodoTextFocused = true
+                    }
+                }
+            }
         }
+    }
+
+    private func cancelAdd() {
+        newTodoText = ""
+        newTodoMinutes = ""
+        addStep = .idle
+    }
+
+    private func submitNewTodo() {
+        let text = newTodoText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        guard let minutes = Int(newTodoMinutes.trimmingCharacters(in: .whitespaces)), minutes > 0 else { return }
+        sessionManager.addTodo(text: text, minutes: minutes, at: contextIndex)
+        newTodoText = ""
+        newTodoMinutes = ""
+        addStep = .idle
+    }
+
+    private func submitNewTodoQuick(_ minutes: Int) {
+        let text = newTodoText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        sessionManager.addTodo(text: text, minutes: minutes, at: contextIndex)
+        newTodoText = ""
+        newTodoMinutes = ""
+        addStep = .idle
     }
 
     private func formatTime(_ seconds: TimeInterval) -> String {

@@ -19,8 +19,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         setupHotkeys()
 
-        if case .active = sessionManager.state {
-            // Restored from disk — go straight to session
+        if !sessionManager.contexts.isEmpty && sessionManager.hasActiveIntention {
+            // Restored from disk with active intention — go straight to session
             updateMenu()
             updateMenuBarTitle()
             if appearanceManager.chaliceDisplay == .menuBarAndFloat {
@@ -29,6 +29,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             showAltar()
         }
+
+        // Listen for when queue empties mid-session
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(needsIntention),
+            name: .needsIntention,
+            object: nil
+        )
     }
 
     // MARK: - Menu Bar (The Chalice)
@@ -60,20 +68,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenu() {
         let menu = NSMenu()
 
-        switch sessionManager.state {
-        case .idle:
+        if sessionManager.contexts.isEmpty {
             let titleItem = NSMenuItem(title: "No intention set", action: nil, keyEquivalent: "")
             titleItem.isEnabled = false
             menu.addItem(titleItem)
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "Set Intention…", action: #selector(showAltar), keyEquivalent: "n"))
-
-        case .active(let contexts, let activeIndex):
-            // List all contexts — click to switch
-            for (index, ctx) in contexts.enumerated() {
-                let isActive = index == activeIndex
+        } else {
+            for (index, ctx) in sessionManager.contexts.enumerated() {
+                let isActive = index == sessionManager.activeIndex
                 let prefix = isActive ? "● " : "  "
-                let timeStr = formatTime(ctx.remainingSeconds)
+                let timeStr = ctx.hasActiveIntention ? formatTime(ctx.remainingSeconds) : "idle"
                 let title = "\(prefix)\(ctx.label)  \(timeStr)"
                 let item = NSMenuItem(title: title, action: #selector(switchToContextFromMenu(_:)), keyEquivalent: "")
                 item.tag = index
@@ -85,8 +90,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "Open Altar…", action: #selector(showAltar), keyEquivalent: "a"))
-            menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
-            menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
+            if sessionManager.hasActiveIntention {
+                menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
+                menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
+            }
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -98,7 +105,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateMenuBarTitle() {
-        if let ctx = sessionManager.activeContext {
+        if let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
             statusItem.button?.title = " \(ctx.label) \(sessionManager.remainingTimeFormatted)"
         } else {
             statusItem.button?.title = ""
@@ -137,7 +144,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func toggleAltar() {
         if altarWindow != nil {
             // Only dismiss if there's an active context to return to
-            if case .active = sessionManager.state {
+            if sessionManager.hasActiveIntention {
                 dismissAltar()
                 if appearanceManager.chaliceDisplay == .menuBarAndFloat {
                     showChalice()
@@ -209,6 +216,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard chaliceWindow == nil else { return }
         guard let screen = NSScreen.main else { return }
 
+        if let existing = chaliceWindow {
+            existing.orderFront(nil)
+            return
+        }
+
         let chaliceView = ChaliceView(sessionManager: sessionManager)
 
         let windowWidth: CGFloat = 280
@@ -216,7 +228,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let padding: CGFloat = 20
         let frame = NSRect(
             x: screen.visibleFrame.maxX - windowWidth - padding,
-            y: screen.visibleFrame.maxY - windowHeight - padding,
+            y: screen.visibleFrame.minY + padding,
             width: windowWidth,
             height: windowHeight
         )
@@ -240,8 +252,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hideChalice() {
         chaliceWindow?.orderOut(nil)
-        chaliceWindow?.contentView = nil
-        chaliceWindow = nil
     }
 
     // MARK: - Settings
@@ -275,32 +285,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func completeSession() {
         sessionManager.complete()
-        if case .idle = sessionManager.state {
-            hideChalice()
-            showAltar()
-        }
     }
 
     @objc private func interruptSession() {
         sessionManager.interrupt()
-        if case .idle = sessionManager.state {
-            hideChalice()
-            showAltar()
-        }
     }
 
     @objc private func sessionStateChanged() {
         updateMenu()
         updateMenuBarTitle()
 
-        if case .idle = sessionManager.state {
+        if sessionManager.contexts.isEmpty {
             hideChalice()
             showAltar()
         }
     }
 
+    @objc private func needsIntention() {
+        // Queue empty on active context — open altar to prompt
+        hideChalice()
+        showAltar()
+    }
+
     @objc private func chaliceDisplayChanged() {
-        guard case .active = sessionManager.state else { return }
+        guard !sessionManager.contexts.isEmpty else { return }
         if appearanceManager.chaliceDisplay == .menuBarAndFloat {
             showChalice()
         } else {
@@ -328,7 +336,7 @@ class ChaliceWindow: NSWindow {
     private var dragThreshold: CGFloat = 5
     private var isDragging = false
     /// Corners cycle: top-right → bottom-right → bottom-left → top-left
-    private var cornerIndex = 0
+    private var cornerIndex = 1 // start at bottom-right
     private let padding: CGFloat = 20
 
     override var canBecomeKey: Bool { false }

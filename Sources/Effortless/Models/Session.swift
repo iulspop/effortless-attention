@@ -1,6 +1,5 @@
 import Foundation
 
-/// Logged session record — written when a context is completed/interrupted/expired.
 struct Session: Codable, Sendable {
     let id: UUID
     let label: String

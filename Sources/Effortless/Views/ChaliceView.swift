@@ -16,14 +16,20 @@ struct ChaliceView: View {
                         .foregroundColor(.secondary)
                         .textCase(.uppercase)
 
-                    Text(ctx.intention)
-                        .font(.system(size: 13, weight: .regular, design: .serif))
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let current = ctx.currentTodo {
+                        Text(current.text)
+                            .font(.system(size: 13, weight: .regular, design: .serif))
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                    Text(sessionManager.remainingTimeFormatted)
-                        .font(.system(size: 12, weight: .light, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        Text(sessionManager.remainingTimeFormatted)
+                            .font(.system(size: 12, weight: .light, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("No active intention")
+                            .font(.system(size: 13, weight: .light, design: .serif))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
