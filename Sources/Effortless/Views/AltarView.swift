@@ -101,9 +101,6 @@ struct AltarView: View {
                 return nil
             case 53: // Escape
                 if !sessionManager.contexts.isEmpty {
-                    if let sel = selectedIndex {
-                        sessionManager.switchTo(index: sel)
-                    }
                     onDismiss()
                     return nil
                 }
@@ -126,6 +123,7 @@ struct AltarView: View {
                 if let num = numKeyCodes[event.keyCode],
                    num >= 1, num <= sessionManager.contexts.count {
                     selectedIndex = num - 1
+                    sessionManager.switchTo(index: num - 1)
                     return nil
                 }
                 return event
@@ -185,6 +183,7 @@ struct AltarView: View {
         let current = selectedIndex ?? 0
         let next = (current + delta + count) % count
         selectedIndex = next
+        sessionManager.switchTo(index: next)
     }
 
     private var contextSidebar: some View {
@@ -206,6 +205,9 @@ struct AltarView: View {
                 }
                 .font(.system(size: 13, weight: .regular, design: .serif))
                 .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -214,9 +216,6 @@ struct AltarView: View {
             // Dismiss button — available if any contexts exist
             if !sessionManager.contexts.isEmpty {
                 Button(action: {
-                    if let sel = selectedIndex {
-                        sessionManager.switchTo(index: sel)
-                    }
                     onDismiss()
                 }) {
                     HStack(spacing: 6) {
@@ -229,6 +228,9 @@ struct AltarView: View {
                     }
                     .font(.system(size: 14, weight: .medium, design: .serif))
                     .foregroundColor(.primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -242,6 +244,7 @@ struct AltarView: View {
 
         return Button(action: {
             selectedIndex = index
+            sessionManager.switchTo(index: index)
             isCreatingNew = false
         }) {
             HStack(spacing: 8) {
@@ -295,6 +298,7 @@ struct AltarView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
