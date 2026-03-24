@@ -18,7 +18,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appearanceManager.apply()
         setupMenuBar()
         setupHotkeys()
-        showAltar()
+
+        if case .active = sessionManager.state {
+            // Restored from disk — go straight to session
+            updateMenu()
+            updateMenuBarTitle()
+            if appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                showChalice()
+            }
+        } else {
+            showAltar()
+        }
     }
 
     // MARK: - Menu Bar (The Chalice)

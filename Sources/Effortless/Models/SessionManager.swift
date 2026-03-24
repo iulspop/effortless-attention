@@ -5,6 +5,11 @@ extension Notification.Name {
     static let sessionStateChanged = Notification.Name("sessionStateChanged")
 }
 
+private struct PersistedState: Codable {
+    let contexts: [CognitiveContext]
+    let activeIndex: Int
+}
+
 @MainActor
 class SessionManager: ObservableObject {
     enum State {
@@ -18,6 +23,10 @@ class SessionManager: ObservableObject {
     private var timer: Timer?
     private let logger = SessionLogger()
     private var lastTickDate: Date?
+
+    init() {
+        restoreState()
+    }
 
     // MARK: - Computed Properties
 
@@ -268,5 +277,39 @@ class SessionManager: ObservableObject {
 
     private func notifyChange() {
         NotificationCenter.default.post(name: .sessionStateChanged, object: nil)
+        persistState()
+    }
+
+    // MARK: - Persistence
+
+    private static var stateFile: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("Effortless", isDirectory: true)
+        return dir.appendingPathComponent("state.json")
+    }
+
+    private func persistState() {
+        guard case .active(let contexts, let activeIndex) = state else {
+            // Idle — remove state file
+            try? FileManager.default.removeItem(at: Self.stateFile)
+            return
+        }
+        let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        guard let data = try? encoder.encode(persisted) else { return }
+        let dir = Self.stateFile.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? data.write(to: Self.stateFile)
+    }
+
+    private func restoreState() {
+        guard FileManager.default.fileExists(atPath: Self.stateFile.path) else { return }
+        guard let data = try? Data(contentsOf: Self.stateFile) else { return }
+        guard let persisted = try? JSONDecoder().decode(PersistedState.self, from: data) else { return }
+        guard !persisted.contexts.isEmpty else { return }
+        let index = min(persisted.activeIndex, persisted.contexts.count - 1)
+        state = .active(contexts: persisted.contexts, activeIndex: index)
+        startTimer()
     }
 }
