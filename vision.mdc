@@ -1,0 +1,235 @@
+# Effortless — Attention Mirror for macOS
+
+Effortless transforms your computer into a temple for your attention.
+It is a shim into the OS. When it's on, you interact with your computer *through* it.
+It does not block. It does not gatekeep. It mirrors your cognitive flow back to you,
+making your attention salient so you can tend it like something sacred.
+
+Spiritual successor to the Effortless Chrome extension — elevated from browser to OS,
+from static timers to an intelligent mirror powered by local LLM.
+
+## Origin
+
+The original Effortless was a Chrome extension that asked you to declare your purpose
+before browsing and assigned a timebox. It worked — users loved it — but it only saw
+the browser. The computer is the temple now. The whole screen. Every app. Every switch.
+
+## The Chalice
+
+Your attention is the precious liquid overflowing from a chalice.
+You want it given to something sacred, not wasted and tarnished.
+The chalice is not a guard. It is a mirror — a still pool of water
+showing you your own mind.
+
+The aesthetic treats your attention and intention as something intimate,
+precious, to be cared for jealously and only given worthily.
+
+---
+
+Effortless {
+  State {
+    session: Session | null
+    flowState: idle | altar | active | reflecting
+    contextStream: stream of { app, windowTitle, timestamp }
+  }
+
+  ## The Altar
+
+  The threshold. A full-screen overlay that covers macOS entirely.
+  You cannot use your computer without passing through it.
+  Not a wall — a doorway. You declare what you will give your attention to.
+
+  AltarView {
+    question = "What will you give your attention to?"
+    intentionInput: freeform text, centered, warm serif
+    timeboxPicker: 15 | 30 | 45 | 60 | 90 | custom minutes
+    beginButton: dismisses altar, starts session
+
+    Constraints {
+      Cannot be dismissed without setting an intention.
+      Cannot be closed via Cmd+W, Escape, or clicking away.
+      Covers all screens. Appears above all windows, including fullscreen apps.
+      White/cream background. Generous whitespace. Everything breathes.
+      The chalice icon presides, quiet and centered.
+    }
+
+    (app launches && no active session) => show altar
+    (session expires) => show altar
+    (wake from sleep) => show altar  // v0.4
+  }
+
+  ## The Chalice
+
+  The quiet watcher. Always present during a session.
+  Two manifestations: menubar presence and floating overlay.
+
+  MenuBar {
+    icon: chalice (simple line art)
+    title: remaining time during active session
+    dropdown: current intention, time remaining, Complete, Interrupt, Quit
+  }
+
+  FloatingOverlay {
+    Small, draggable, always-on-top window.
+    Shows current intention + countdown timer.
+    Warm white, rounded, subtle shadow.
+    Unobtrusive but never hidden.
+
+    Constraints {
+      Visible on all Spaces and over fullscreen apps.
+      Does not steal focus. Does not block interaction.
+      Movable by dragging anywhere on it.
+    }
+  }
+
+  ## The Mirror (v0.3)
+
+  A local LLM that watches your active context — app names, window titles,
+  time patterns — and reflects when your flow drifts from your stated intention.
+
+  Mirror {
+    input: intention + contextStream
+    fn assessAlignment(intention, currentContext);
+    fn composeReflection(intention, drift);
+
+    Constraints {
+      Not a judge. A gentle mirror.
+      Never commanding or guilt-inducing.
+      Reflective questions, not directives.
+      "You said you'd write the report. You've been in Twitter for 4 minutes.
+       Is this serving you?"
+      Runs entirely on-device. No network calls. No cloud.
+      Only observes app names and window titles. Never screen content.
+    }
+
+    (drift detected && duration > threshold) => surface gentle reflection
+    (session complete) => compose session narrative
+  }
+
+  ## The Flow Log
+
+  A record of each session. The raw material for self-knowledge.
+
+  Session {
+    id: UUID
+    intention: String
+    timeboxMinutes: Int
+    startedAt: Date
+    endedAt: Date | null
+    outcome: completed | interrupted | expired
+    contextTimeline: [{ app, windowTitle, timestamp }]  // v0.2
+    reflection: String | null  // v0.3
+  }
+
+  SessionLog {
+    storage: ~/Library/Application Support/Effortless/sessions.json
+    Constraints {
+      100% local. User-owned. No telemetry.
+      JSON format, human-readable.
+    }
+    fn log(session);
+    fn loadAll;
+    fn recentSessions;
+  }
+
+  ## Session Flow
+
+  ```mermaid
+  stateDiagram-v2
+      [*] --> Altar
+      Altar --> Active: intention + timebox set
+      Active --> Reflecting: user completes
+      Active --> Altar: user interrupts
+      Active --> Altar: timer expires
+      Reflecting --> Altar: reflection acknowledged
+  ```
+
+  fn begin(intention, minutes);
+  fn complete;
+  fn interrupt;
+  fn expire;
+
+  match (flowState) {
+    case idle => show altar
+    case altar => await intention
+    case active => run timer, show chalice, monitor context
+    case reflecting => show reflection prompt, then return to altar
+  }
+
+  ## Design Language — Sacred Minimalism
+
+  Aesthetic {
+    backgrounds: white, cream — clean, spacious, like a quiet room
+    typography: warm serif — intimate, not corporate
+    icon: chalice — simple line art, central
+    accents: subtle gold/amber — warmth without flash
+    whitespace: generous — every element breathes
+    animations: slow, deliberate — like pouring water
+
+    Constraints {
+      No gamification. No streaks. No scores. No achievements.
+      This is a mirror, not a game.
+      No "productivity bro" energy. Monastic. Reverent. Intimate.
+    }
+  }
+
+  ToneOfVoice {
+    Intimate, second-person.
+    "What will you give your attention to?"
+    Never commanding or guilt-inducing.
+    Reflective questions, not directives.
+    "You've been here for 12 minutes. Is this where you want to be?"
+  }
+
+  ## Architecture
+
+  Tech {
+    language: Swift / SwiftUI
+    windowControl: AppKit (NSWindow) for overlay levels and menubar
+    monitoring: NSWorkspace notifications + CGWindowListCopyWindowInfo + AXUIElement
+    llm: Ollama / MLX — local, on-device (v0.3)
+    storage: JSON files, local disk
+    platform: macOS 14+
+  }
+
+  Privacy {
+    Constraints {
+      100% local. No network calls. No telemetry. No cloud.
+      Screen content is never captured or stored.
+      Only app names and window titles are observed.
+      Session logs stored locally, user-owned.
+    }
+  }
+
+  ## Roadmap
+
+  v0.1 — The Altar {
+    Menubar app with chalice icon.
+    Full-screen altar overlay: intention + timebox + begin.
+    Floating chalice overlay: intention + countdown.
+    Session flow: begin, complete, interrupt, expire.
+    Basic session logging to JSON.
+  }
+
+  v0.2 — The Mirror (Context Awareness) {
+    Active window monitoring (app name + window title).
+    Context timeline logged per session.
+    Session review: see where your attention went.
+    Rule-based drift detection.
+  }
+
+  v0.3 — The Witness (Local LLM) {
+    Local LLM integration via Ollama.
+    Intention understanding. Context matching.
+    Gentle reflections surfaced in floating overlay.
+    Session narrative summaries.
+  }
+
+  v0.4 — The Temple (Deep Integration) {
+    Launch on login. Altar on wake.
+    Multi-session patterns across days/weeks.
+    Global keyboard shortcuts.
+    Do Not Disturb integration.
+    Flow log export.
+  }
+}
