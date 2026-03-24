@@ -46,6 +46,7 @@ struct AltarView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
         }
         .onReceive(timer) { currentTime = $0 }
         .onAppear {
@@ -81,7 +82,7 @@ struct AltarView: View {
                 NotificationCenter.default.post(name: .altarAddToQueue, object: nil)
                 return nil
             case 53: // Escape
-                if sessionManager.hasActiveIntention {
+                if !sessionManager.contexts.isEmpty {
                     if let sel = selectedIndex {
                         sessionManager.switchTo(index: sel)
                     }
@@ -180,8 +181,8 @@ struct AltarView: View {
 
             Spacer().frame(height: 24)
 
-            // Dismiss button — only if there's an active intention
-            if sessionManager.hasActiveIntention {
+            // Dismiss button — available if any contexts exist
+            if !sessionManager.contexts.isEmpty {
                 Button(action: {
                     if let sel = selectedIndex {
                         sessionManager.switchTo(index: sel)
@@ -669,10 +670,13 @@ struct ContextDetailView: View {
                                     .foregroundColor(todo.completed ? .green : (todo.id == ctx.currentTodo?.id ? .accentColor : .secondary))
                                     .font(.system(size: 16))
 
-                                Text(todo.text)
-                                    .font(.system(size: 14, weight: .regular, design: .serif))
-                                    .strikethrough(todo.completed)
-                                    .foregroundColor(todo.completed ? .secondary : .primary)
+                                EditableText(
+                                    text: todo.text,
+                                    font: .system(size: 14, weight: .regular, design: .serif),
+                                    strikethrough: todo.completed,
+                                    color: todo.completed ? .secondary : .primary,
+                                    onCommit: { sessionManager.updateTodoText($0, todoId: todo.id, at: contextIndex) }
+                                )
 
                                 Spacer()
 
@@ -848,6 +852,8 @@ struct ContextDetailView: View {
 struct EditableText: View {
     let text: String
     let font: Font
+    var strikethrough: Bool = false
+    var color: Color = .primary
     let onCommit: (String) -> Void
 
     @State private var isEditing = false
@@ -867,6 +873,7 @@ struct EditableText: View {
                     }
                     isEditing = false
                 }
+                .onExitCommand { isEditing = false }
                 .onAppear {
                     editText = text
                     isFocused = true
@@ -874,7 +881,8 @@ struct EditableText: View {
         } else {
             Text(text)
                 .font(font)
-                .foregroundColor(.primary)
+                .strikethrough(strikethrough)
+                .foregroundColor(color)
                 .onTapGesture {
                     isEditing = true
                 }

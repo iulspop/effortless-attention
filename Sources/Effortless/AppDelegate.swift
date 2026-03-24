@@ -143,8 +143,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggleAltar() {
         if altarWindow != nil {
-            // Only dismiss if there's an active context to return to
-            if sessionManager.hasActiveIntention {
+            // Dismiss if any contexts exist (even without active intention)
+            if !sessionManager.contexts.isEmpty {
                 dismissAltar()
                 if appearanceManager.chaliceDisplay == .menuBarAndFloat {
                     showChalice()
