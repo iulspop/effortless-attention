@@ -1,9 +1,13 @@
 import Foundation
 
+/// Logged session record — written when a context is completed/interrupted/expired.
 struct Session: Codable, Sendable {
     let id: UUID
+    let label: String
     let intention: String
     let timeboxMinutes: Int
+    let elapsedSeconds: TimeInterval
+    let todos: [TodoItem]
     let startedAt: Date
     var endedAt: Date?
     var outcome: Outcome?
@@ -12,21 +16,5 @@ struct Session: Codable, Sendable {
         case completed
         case interrupted
         case expired
-    }
-
-    var timeboxSeconds: TimeInterval {
-        TimeInterval(timeboxMinutes * 60)
-    }
-
-    var elapsedSeconds: TimeInterval {
-        Date().timeIntervalSince(startedAt)
-    }
-
-    var remainingSeconds: TimeInterval {
-        max(0, timeboxSeconds - elapsedSeconds)
-    }
-
-    var isExpired: Bool {
-        remainingSeconds <= 0
     }
 }

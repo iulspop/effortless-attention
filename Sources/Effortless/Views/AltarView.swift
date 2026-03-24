@@ -1,19 +1,11 @@
 import SwiftUI
 
 struct AltarView: View {
-    var onBegin: (String, Int) -> Void
+    @ObservedObject var sessionManager: SessionManager
+    var onDismiss: () -> Void
 
-    enum Step { case outcome, minutes }
-
-    @State private var step: Step = .outcome
-    @State private var intention: String = ""
-    @State private var minutesText: String = ""
-    @FocusState private var isOutcomeFocused: Bool
-    @FocusState private var isMinutesFocused: Bool
-
-    private let quickOptions: [(key: String, minutes: Int)] = [
-        ("q", 5), ("w", 25), ("e", 90)
-    ]
+    @State private var isCreatingNew = false
+    @State private var selectedIndex: Int? = nil
 
     @State private var currentTime = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -31,30 +23,257 @@ struct AltarView: View {
 
                 Spacer()
 
-                Image(systemName: "cup.and.saucer")
-                    .font(.system(size: 48, weight: .ultraLight))
-                    .foregroundColor(.secondary)
-                    .padding(.bottom, 48)
-
-                switch step {
-                case .outcome:
-                    outcomeStep
-                case .minutes:
-                    minutesStep
+                if sessionManager.contexts.isEmpty && !isCreatingNew {
+                    // No contexts — show creation flow
+                    NewContextFlow(onCreated: { label, intention, minutes in
+                        sessionManager.addContext(label: label, intention: intention, minutes: minutes)
+                        onDismiss()
+                    })
+                } else {
+                    workspaceView
                 }
 
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onReceive(timer) { currentTime = $0 }
+        .onAppear {
+            selectedIndex = sessionManager.activeIndex
+        }
+    }
+
+    // MARK: - Workspace (has contexts)
+
+    private var workspaceView: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // Left: context list
+            contextSidebar
+                .frame(width: 240)
+
+            Divider()
+                .padding(.vertical, 20)
+
+            // Right: detail view
+            if isCreatingNew {
+                NewContextFlow(onCreated: { label, intention, minutes in
+                    sessionManager.addContext(label: label, intention: intention, minutes: minutes)
+                    isCreatingNew = false
+                    selectedIndex = sessionManager.contexts.count - 1
+                }, onCancel: {
+                    isCreatingNew = false
+                })
+                .frame(maxWidth: .infinity)
+            } else if let idx = selectedIndex, idx < sessionManager.contexts.count {
+                ContextDetailView(
+                    sessionManager: sessionManager,
+                    contextIndex: idx
+                )
+                .frame(maxWidth: .infinity)
+                .id(idx)
+            } else {
+                Text("Select a context")
+                    .font(.system(size: 18, weight: .light, design: .serif))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(maxWidth: 900, maxHeight: 500)
+    }
+
+    private var contextSidebar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(sessionManager.contexts.enumerated()), id: \.element.id) { index, ctx in
+                contextRow(ctx, index: index)
+            }
+
+            Spacer().frame(height: 12)
+
+            Button(action: { isCreatingNew = true }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle")
+                    Text("New Context")
+                }
+                .font(.system(size: 13, weight: .regular, design: .serif))
+                .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            Spacer().frame(height: 24)
+
+            // Dismiss button — only if there's an active context
+            if sessionManager.activeIndex != nil {
+                Button(action: {
+                    if let sel = selectedIndex {
+                        sessionManager.switchTo(index: sel)
+                    }
+                    onDismiss()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.right.circle")
+                        Text("Return to session")
+                    }
+                    .font(.system(size: 14, weight: .medium, design: .serif))
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: [])
+            }
+        }
+        .padding(20)
+    }
+
+    private func contextRow(_ ctx: CognitiveContext, index: Int) -> some View {
+        let isActive = index == sessionManager.activeIndex
+        let isSelected = index == selectedIndex
+
+        return Button(action: {
+            selectedIndex = index
+            isCreatingNew = false
+        }) {
+            HStack(spacing: 8) {
+                // Position number
+                Text("\(index + 1)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(ctx.label)
+                            .font(.system(size: 13, weight: isActive ? .semibold : .regular, design: .serif))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+
+                        if isActive {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+
+                    Text(formatTime(ctx.remainingSeconds))
+                        .font(.system(size: 11, weight: .light, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                if ctx.todosTotal > 0 {
+                    Text("\(ctx.todosCompleted)/\(ctx.todosTotal)")
+                        .font(.system(size: 11, weight: .light, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - New Context Creation Flow
+
+struct NewContextFlow: View {
+    var onCreated: (String, String, Int) -> Void
+    var onCancel: (() -> Void)? = nil
+
+    enum Step { case label, outcome, minutes }
+
+    @State private var step: Step = .label
+    @State private var label: String = ""
+    @State private var intention: String = ""
+    @State private var minutesText: String = ""
+    @FocusState private var isLabelFocused: Bool
+    @FocusState private var isOutcomeFocused: Bool
+    @FocusState private var isMinutesFocused: Bool
+
+    private let quickOptions: [(key: String, minutes: Int)] = [
+        ("q", 5), ("w", 25), ("e", 90)
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "cup.and.saucer")
+                .font(.system(size: 48, weight: .ultraLight))
+                .foregroundColor(.secondary)
+                .padding(.bottom, 48)
+
+            switch step {
+            case .label:
+                labelStep
+            case .outcome:
+                outcomeStep
+            case .minutes:
+                minutesStep
+            }
+
+            if onCancel != nil {
+                Button("Cancel") { onCancel?() }
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .buttonStyle(.plain)
+                    .padding(.top, 32)
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+        }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isOutcomeFocused = true
+                isLabelFocused = true
             }
         }
     }
 
-    // MARK: - Step 1: Outcome
+    // MARK: - Step 1: Label
+
+    private var labelStep: some View {
+        VStack(spacing: 0) {
+            Text("Name this context")
+                .font(.system(size: 24, weight: .light, design: .serif))
+                .foregroundColor(.primary)
+                .padding(.bottom, 32)
+
+            TextField("", text: $label)
+                .font(.system(size: 20, weight: .regular, design: .serif))
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.center)
+                .textFieldStyle(.plain)
+                .frame(maxWidth: 400)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
+                )
+                .focused($isLabelFocused)
+                .onSubmit {
+                    let trimmed = label.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty else { return }
+                    step = .outcome
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isOutcomeFocused = true
+                    }
+                }
+        }
+    }
+
+    // MARK: - Step 2: Outcome
 
     private var outcomeStep: some View {
         VStack(spacing: 0) {
@@ -88,7 +307,7 @@ struct AltarView: View {
         }
     }
 
-    // MARK: - Step 2: Minutes
+    // MARK: - Step 3: Minutes
 
     private var minutesStep: some View {
         VStack(spacing: 0) {
@@ -111,9 +330,7 @@ struct AltarView: View {
                         .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
                 )
                 .focused($isMinutesFocused)
-                .onSubmit {
-                    submitMinutes()
-                }
+                .onSubmit { submitMinutes() }
                 .padding(.bottom, 32)
 
             HStack(spacing: 16) {
@@ -145,19 +362,205 @@ struct AltarView: View {
             }
             return .ignored
         }
-        .onReceive(timer) { currentTime = $0 }
     }
 
     private func selectQuickOption(_ minutes: Int) {
-        let trimmed = intention.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        onBegin(trimmed, minutes)
+        let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
+        let trimmedIntention = intention.trimmingCharacters(in: .whitespaces)
+        guard !trimmedLabel.isEmpty, !trimmedIntention.isEmpty else { return }
+        onCreated(trimmedLabel, trimmedIntention, minutes)
     }
 
     private func submitMinutes() {
-        let trimmed = intention.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
+        let trimmedLabel = label.trimmingCharacters(in: .whitespaces)
+        let trimmedIntention = intention.trimmingCharacters(in: .whitespaces)
+        guard !trimmedLabel.isEmpty, !trimmedIntention.isEmpty else { return }
         guard let minutes = Int(minutesText.trimmingCharacters(in: .whitespaces)), minutes > 0 else { return }
-        onBegin(trimmed, minutes)
+        onCreated(trimmedLabel, trimmedIntention, minutes)
+    }
+}
+
+// MARK: - Context Detail View
+
+struct ContextDetailView: View {
+    @ObservedObject var sessionManager: SessionManager
+    let contextIndex: Int
+
+    @State private var newTodoText: String = ""
+    @FocusState private var isTodoInputFocused: Bool
+
+    private var context: CognitiveContext? {
+        guard contextIndex < sessionManager.contexts.count else { return nil }
+        return sessionManager.contexts[contextIndex]
+    }
+
+    var body: some View {
+        if let ctx = context {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Label (editable)
+                    EditableText(
+                        text: ctx.label,
+                        font: .system(size: 20, weight: .semibold, design: .serif),
+                        onCommit: { sessionManager.updateLabel($0, at: contextIndex) }
+                    )
+
+                    // Intention (editable)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Intention")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        EditableText(
+                            text: ctx.intention,
+                            font: .system(size: 16, weight: .regular, design: .serif),
+                            onCommit: { sessionManager.updateIntention($0, at: contextIndex) }
+                        )
+                    }
+
+                    // Timer info
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Remaining")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                            Text(formatTime(ctx.remainingSeconds))
+                                .font(.system(size: 16, weight: .light, design: .monospaced))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Timebox")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                            Text("\(ctx.timeboxMinutes) min")
+                                .font(.system(size: 16, weight: .light, design: .monospaced))
+                        }
+                    }
+
+                    Divider()
+
+                    // Todo list
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Todos")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        ForEach(ctx.todos) { todo in
+                            HStack(spacing: 8) {
+                                Button(action: {
+                                    sessionManager.toggleTodo(todoId: todo.id, at: contextIndex)
+                                }) {
+                                    Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(todo.completed ? .green : .secondary)
+                                        .font(.system(size: 16))
+                                }
+                                .buttonStyle(.plain)
+
+                                Text(todo.text)
+                                    .font(.system(size: 14, weight: .regular, design: .serif))
+                                    .strikethrough(todo.completed)
+                                    .foregroundColor(todo.completed ? .secondary : .primary)
+
+                                Spacer()
+
+                                Button(action: {
+                                    sessionManager.removeTodo(todoId: todo.id, at: contextIndex)
+                                }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 2)
+                        }
+
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus.circle")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 16))
+
+                            TextField("Add todo…", text: $newTodoText)
+                                .font(.system(size: 14, weight: .regular, design: .serif))
+                                .textFieldStyle(.plain)
+                                .focused($isTodoInputFocused)
+                                .onSubmit {
+                                    let trimmed = newTodoText.trimmingCharacters(in: .whitespaces)
+                                    guard !trimmed.isEmpty else { return }
+                                    sessionManager.addTodo(trimmed, at: contextIndex)
+                                    newTodoText = ""
+                                }
+                        }
+                        .padding(.top, 4)
+                    }
+
+                    Spacer()
+
+                    // Delete context
+                    Button(action: {
+                        sessionManager.removeContext(at: contextIndex)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("Remove context")
+                        }
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.red.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(24)
+            }
+        }
+    }
+
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - Editable Text Helper
+
+struct EditableText: View {
+    let text: String
+    let font: Font
+    let onCommit: (String) -> Void
+
+    @State private var isEditing = false
+    @State private var editText: String = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        if isEditing {
+            TextField("", text: $editText)
+                .font(font)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .onSubmit {
+                    let trimmed = editText.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty {
+                        onCommit(trimmed)
+                    }
+                    isEditing = false
+                }
+                .onAppear {
+                    editText = text
+                    isFocused = true
+                }
+        } else {
+            Text(text)
+                .font(font)
+                .foregroundColor(.primary)
+                .onTapGesture {
+                    isEditing = true
+                }
+                .help("Click to edit")
+        }
     }
 }

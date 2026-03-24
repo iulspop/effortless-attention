@@ -9,12 +9,17 @@ struct ChaliceView: View {
                 .font(.system(size: 16, weight: .ultraLight))
                 .foregroundColor(.secondary)
 
-            if let session = sessionManager.currentSession {
+            if let ctx = sessionManager.activeContext {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(session.intention)
+                    Text(ctx.label)
+                        .font(.system(size: 11, weight: .semibold, design: .serif))
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    Text(ctx.intention)
                         .font(.system(size: 13, weight: .regular, design: .serif))
                         .foregroundColor(.primary)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text(sessionManager.remainingTimeFormatted)
                         .font(.system(size: 12, weight: .light, design: .monospaced))

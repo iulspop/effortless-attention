@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private let sessionManager = SessionManager()
     private let appearanceManager = AppearanceManager.shared
+    private let hotkeyManager = HotkeyManager.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon — menubar-only app
@@ -16,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         appearanceManager.apply()
         setupMenuBar()
+        setupHotkeys()
         showAltar()
     }
 
@@ -56,16 +58,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "Set Intention…", action: #selector(showAltar), keyEquivalent: "n"))
 
-        case .active(let session):
-            let intentionItem = NSMenuItem(title: session.intention, action: nil, keyEquivalent: "")
-            intentionItem.isEnabled = false
-            menu.addItem(intentionItem)
-
-            let timeItem = NSMenuItem(title: sessionManager.remainingTimeFormatted, action: nil, keyEquivalent: "")
-            timeItem.isEnabled = false
-            menu.addItem(timeItem)
+        case .active(let contexts, let activeIndex):
+            // List all contexts — click to switch
+            for (index, ctx) in contexts.enumerated() {
+                let isActive = index == activeIndex
+                let prefix = isActive ? "● " : "  "
+                let timeStr = formatTime(ctx.remainingSeconds)
+                let title = "\(prefix)\(ctx.label)  \(timeStr)"
+                let item = NSMenuItem(title: title, action: #selector(switchToContextFromMenu(_:)), keyEquivalent: "")
+                item.tag = index
+                if isActive {
+                    item.state = .on
+                }
+                menu.addItem(item)
+            }
 
             menu.addItem(NSMenuItem.separator())
+            menu.addItem(NSMenuItem(title: "Open Altar…", action: #selector(showAltar), keyEquivalent: "a"))
             menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
             menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
         }
@@ -79,10 +88,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateMenuBarTitle() {
-        if case .active = sessionManager.state {
-            statusItem.button?.title = " \(sessionManager.remainingTimeFormatted)"
+        if let ctx = sessionManager.activeContext {
+            statusItem.button?.title = " \(ctx.label) \(sessionManager.remainingTimeFormatted)"
         } else {
             statusItem.button?.title = ""
+        }
+    }
+
+    @objc private func switchToContextFromMenu(_ sender: NSMenuItem) {
+        sessionManager.switchTo(index: sender.tag)
+    }
+
+    // MARK: - Hotkeys
+
+    private func setupHotkeys() {
+        hotkeyManager.setHandler(for: .complete) { [weak self] in
+            self?.completeSession()
+        }
+        hotkeyManager.setHandler(for: .interrupt) { [weak self] in
+            self?.interruptSession()
+        }
+        hotkeyManager.setHandler(for: .openAltar) { [weak self] in
+            self?.showAltar()
+        }
+        hotkeyManager.setHandler(for: .cycleNext) { [weak self] in
+            self?.sessionManager.cycleNext()
+        }
+        hotkeyManager.setHandler(for: .cyclePrev) { [weak self] in
+            self?.sessionManager.cyclePrev()
+        }
+        hotkeyManager.onContextJump = { [weak self] index in
+            self?.sessionManager.switchTo(index: index)
         }
     }
 
@@ -93,8 +129,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let screen = NSScreen.main else { return }
 
-        let altarView = AltarView(onBegin: { [weak self] intention, minutes in
-            self?.beginSession(intention: intention, minutes: minutes)
+        let altarView = AltarView(sessionManager: sessionManager, onDismiss: { [weak self] in
+            self?.dismissAltar()
+            if self?.appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                self?.showChalice()
+            }
         })
 
         let window = KeyableWindow(
@@ -149,7 +188,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let chaliceView = ChaliceView(sessionManager: sessionManager)
 
         let windowWidth: CGFloat = 280
-        let windowHeight: CGFloat = 80
+        let windowHeight: CGFloat = 120
         let padding: CGFloat = 20
         let frame = NSRect(
             x: screen.visibleFrame.maxX - windowWidth - padding,
@@ -190,10 +229,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let settingsView = SettingsView(appearance: appearanceManager)
+        let settingsView = SettingsView(appearance: appearanceManager, hotkeyManager: hotkeyManager)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 280, height: 140),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -210,24 +249,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Session Actions
 
-    private func beginSession(intention: String, minutes: Int) {
-        sessionManager.begin(intention: intention, minutes: minutes)
-        dismissAltar()
-        if appearanceManager.chaliceDisplay == .menuBarAndFloat {
-            showChalice()
-        }
-    }
-
     @objc private func completeSession() {
         sessionManager.complete()
-        hideChalice()
-        showAltar()
+        if case .idle = sessionManager.state {
+            hideChalice()
+            showAltar()
+        }
     }
 
     @objc private func interruptSession() {
         sessionManager.interrupt()
-        hideChalice()
-        showAltar()
+        if case .idle = sessionManager.state {
+            hideChalice()
+            showAltar()
+        }
     }
 
     @objc private func sessionStateChanged() {
@@ -247,6 +282,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             hideChalice()
         }
+    }
+
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
     }
 }
 

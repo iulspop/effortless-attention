@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var appearance: AppearanceManager
+    @ObservedObject var hotkeyManager: HotkeyManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -35,12 +36,23 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
+
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Launch at login", isOn: $appearance.launchAtLogin)
                     .font(.system(size: 13, weight: .regular))
             }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Keyboard Shortcuts")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+
+                ForEach(HotkeyAction.allCases, id: \.self) { action in
+                    KeyRecorderView(action: action, hotkeyManager: hotkeyManager)
+                }
+            }
         }
         .padding(24)
-        .frame(width: 320)
+        .frame(width: 360)
     }
 }

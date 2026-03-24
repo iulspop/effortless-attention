@@ -7,9 +7,13 @@ let package = Package(
     platforms: [
         .macOS(.v14)
     ],
+    dependencies: [
+        .package(url: "https://github.com/soffes/HotKey", from: "0.2.1"),
+    ],
     targets: [
         .executableTarget(
             name: "Effortless",
+            dependencies: ["HotKey"],
             path: "Sources/Effortless"
         ),
     ]
