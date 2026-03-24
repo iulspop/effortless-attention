@@ -6,12 +6,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var altarWindow: NSWindow?
     private var chaliceWindow: NSWindow?
+    private var settingsWindow: NSWindow?
     private let sessionManager = SessionManager()
+    private let appearanceManager = AppearanceManager.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon — menubar-only app
         NSApp.setActivationPolicy(.accessory)
 
+        appearanceManager.apply()
         setupMenuBar()
         showAltar()
     }
@@ -62,6 +65,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
         }
 
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit Effortless", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -155,6 +160,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chaliceWindow?.orderOut(nil)
         chaliceWindow?.contentView = nil
         chaliceWindow = nil
+    }
+
+    // MARK: - Settings
+
+    @objc private func showSettings() {
+        if let existing = settingsWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let settingsView = SettingsView(appearance: appearanceManager)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 140),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSHostingView(rootView: settingsView)
+        window.title = "Effortless Settings"
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        settingsWindow = window
     }
 
     // MARK: - Session Actions

@@ -12,12 +12,12 @@ struct AltarView: View {
     @FocusState private var isMinutesFocused: Bool
 
     private let quickOptions: [(key: String, minutes: Int)] = [
-        ("1", 5), ("2", 25), ("3", 90)
+        ("q", 5), ("w", 25), ("e", 90)
     ]
 
     var body: some View {
         ZStack {
-            Color(nsColor: NSColor(white: 0.97, alpha: 1.0))
+            Color(nsColor: NSColor.windowBackgroundColor)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -25,7 +25,7 @@ struct AltarView: View {
 
                 Image(systemName: "cup.and.saucer")
                     .font(.system(size: 48, weight: .ultraLight))
-                    .foregroundColor(Color(nsColor: NSColor(white: 0.55, alpha: 1.0)))
+                    .foregroundColor(.secondary)
                     .padding(.bottom, 48)
 
                 switch step {
@@ -52,12 +52,12 @@ struct AltarView: View {
         VStack(spacing: 0) {
             Text("What outcome do you seek?")
                 .font(.system(size: 24, weight: .light, design: .serif))
-                .foregroundColor(Color(nsColor: NSColor(white: 0.2, alpha: 1.0)))
+                .foregroundColor(.primary)
                 .padding(.bottom, 32)
 
             TextField("", text: $intention)
                 .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundColor(Color(nsColor: NSColor(white: 0.15, alpha: 1.0)))
+                .foregroundColor(.primary)
                 .multilineTextAlignment(.center)
                 .textFieldStyle(.plain)
                 .frame(maxWidth: 500)
@@ -65,7 +65,7 @@ struct AltarView: View {
                 .padding(.horizontal, 20)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white)
+                        .fill(Color(nsColor: .controlBackgroundColor))
                         .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
                 )
                 .focused($isOutcomeFocused)
@@ -86,12 +86,12 @@ struct AltarView: View {
         VStack(spacing: 0) {
             Text("How many minutes to hit that target?")
                 .font(.system(size: 24, weight: .light, design: .serif))
-                .foregroundColor(Color(nsColor: NSColor(white: 0.2, alpha: 1.0)))
+                .foregroundColor(.primary)
                 .padding(.bottom, 32)
 
             TextField("", text: $minutesText)
                 .font(.system(size: 20, weight: .regular, design: .serif))
-                .foregroundColor(Color(nsColor: NSColor(white: 0.15, alpha: 1.0)))
+                .foregroundColor(.primary)
                 .multilineTextAlignment(.center)
                 .textFieldStyle(.plain)
                 .frame(maxWidth: 200)
@@ -99,7 +99,7 @@ struct AltarView: View {
                 .padding(.horizontal, 20)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white)
+                        .fill(Color(nsColor: .controlBackgroundColor))
                         .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
                 )
                 .focused($isMinutesFocused)
@@ -114,22 +114,22 @@ struct AltarView: View {
                         HStack(spacing: 6) {
                             Text(option.key)
                                 .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundColor(Color(nsColor: NSColor(white: 0.55, alpha: 1.0)))
+                                .foregroundColor(.secondary)
                                 .frame(width: 18, height: 18)
                                 .background(
                                     RoundedRectangle(cornerRadius: 4)
-                                        .stroke(Color(nsColor: NSColor(white: 0.75, alpha: 1.0)), lineWidth: 1)
+                                        .stroke(Color.secondary.opacity(0.5), lineWidth: 1)
                                 )
                             Text("\(option.minutes) min")
                                 .font(.system(size: 14, weight: .light, design: .serif))
-                                .foregroundColor(Color(nsColor: NSColor(white: 0.4, alpha: 1.0)))
+                                .foregroundColor(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
-        .onKeyPress(characters: .init(charactersIn: "123")) { press in
+        .onKeyPress(characters: .init(charactersIn: "qwe")) { press in
             let key = String(press.characters)
             if let option = quickOptions.first(where: { $0.key == key }) {
                 selectQuickOption(option.minutes)
