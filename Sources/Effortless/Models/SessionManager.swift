@@ -92,6 +92,7 @@ class SessionManager: ObservableObject {
         let minutes = remaining / 60
         let seconds = remaining % 60
         remainingTimeFormatted = String(format: "%d:%02d", minutes, seconds)
+        notifyChange()
     }
 
     private func notifyChange() {
