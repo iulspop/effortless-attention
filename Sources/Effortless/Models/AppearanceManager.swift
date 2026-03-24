@@ -63,12 +63,21 @@ class AppearanceManager: ObservableObject {
         }
     }
 
+    /// Idle timeout in minutes before auto-pause. 0 = disabled.
+    @Published var idleTimeoutMinutes: Int {
+        didSet {
+            UserDefaults.standard.set(idleTimeoutMinutes, forKey: "idleTimeoutMinutes")
+        }
+    }
+
     private init() {
         let saved = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
         self.mode = AppearanceMode(rawValue: saved) ?? .system
         let savedDisplay = UserDefaults.standard.string(forKey: "chaliceDisplay") ?? "menuBarAndFloat"
         self.chaliceDisplay = ChaliceDisplayMode(rawValue: savedDisplay) ?? .menuBarAndFloat
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
+        let savedIdle = UserDefaults.standard.integer(forKey: "idleTimeoutMinutes")
+        self.idleTimeoutMinutes = savedIdle > 0 ? savedIdle : 5  // default 5 minutes
     }
 
     func apply() {

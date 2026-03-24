@@ -55,6 +55,7 @@ enum HotkeyAction: String, CaseIterable {
     case complete
     case interrupt
     case openAltar
+    case togglePause
     case cycleNext
     case cyclePrev
 
@@ -63,6 +64,7 @@ enum HotkeyAction: String, CaseIterable {
         case .complete: "Complete Session"
         case .interrupt: "Interrupt Session"
         case .openAltar: "Open Altar"
+        case .togglePause: "Pause / Resume"
         case .cycleNext: "Next Context"
         case .cyclePrev: "Previous Context"
         }
@@ -163,6 +165,8 @@ class HotkeyManager: ObservableObject {
             return HotkeyBinding(keyCode: 34, modifiers: mods) // ⌃⌥⌘I
         case .openAltar:
             return HotkeyBinding(keyCode: 0, modifiers: mods)  // ⌃⌥⌘A
+        case .togglePause:
+            return HotkeyBinding(keyCode: 35, modifiers: mods) // ⌃⌥⌘P
         case .cycleNext:
             return HotkeyBinding(keyCode: 124, modifiers: mods) // ⌃⌥⌘→
         case .cyclePrev:

@@ -9,6 +9,20 @@ extension Notification.Name {
 private struct PersistedState: Codable {
     let contexts: [CognitiveContext]
     let activeIndex: Int
+    var isPaused: Bool
+
+    init(contexts: [CognitiveContext], activeIndex: Int, isPaused: Bool = false) {
+        self.contexts = contexts
+        self.activeIndex = activeIndex
+        self.isPaused = isPaused
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        contexts = try container.decode([CognitiveContext].self, forKey: .contexts)
+        activeIndex = try container.decode(Int.self, forKey: .activeIndex)
+        isPaused = try container.decodeIfPresent(Bool.self, forKey: .isPaused) ?? false
+    }
 }
 
 @MainActor
@@ -16,6 +30,7 @@ class SessionManager: ObservableObject {
     @Published var contexts: [CognitiveContext] = []
     @Published var activeIndex: Int = 0
     @Published var remainingTimeFormatted: String = ""
+    @Published var isPaused: Bool = false
 
     private var timer: Timer?
     private let logger = SessionLogger()
@@ -35,6 +50,36 @@ class SessionManager: ObservableObject {
     /// Whether the active context has a running intention
     var hasActiveIntention: Bool {
         activeContext?.hasActiveIntention ?? false
+    }
+
+    // MARK: - Pause / Resume
+
+    func pause() {
+        guard !isPaused else { return }
+        accumulateElapsed(at: activeIndex)
+        stopTimer()
+        isPaused = true
+        notifyChange()
+    }
+
+    func resume(index: Int? = nil) {
+        guard isPaused else { return }
+        if let idx = index {
+            activeIndex = idx
+        }
+        isPaused = false
+        if hasActiveIntention {
+            startTimer()
+        }
+        notifyChange()
+    }
+
+    func togglePause() {
+        if isPaused {
+            resume()
+        } else {
+            pause()
+        }
     }
 
     // MARK: - Context Lifecycle
@@ -209,7 +254,9 @@ class SessionManager: ObservableObject {
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
-        remainingTimeFormatted = ""
+        if !isPaused {
+            remainingTimeFormatted = ""
+        }
         lastTickDate = nil
     }
 
@@ -287,7 +334,7 @@ class SessionManager: ObservableObject {
             try? FileManager.default.removeItem(at: Self.stateFile)
             return
         }
-        let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex)
+        let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex, isPaused: isPaused)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         guard let data = try? encoder.encode(persisted) else { return }
@@ -303,7 +350,8 @@ class SessionManager: ObservableObject {
         guard !persisted.contexts.isEmpty else { return }
         contexts = persisted.contexts
         activeIndex = min(persisted.activeIndex, persisted.contexts.count - 1)
-        if contexts[activeIndex].hasActiveIntention {
+        isPaused = persisted.isPaused
+        if !isPaused && contexts[activeIndex].hasActiveIntention {
             startTimer()
         }
     }

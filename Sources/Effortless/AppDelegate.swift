@@ -7,6 +7,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var altarWindow: NSWindow?
     private var chaliceWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var resumeWindow: NSWindow?
+    private var idleTimer: Timer?
     private let sessionManager = SessionManager()
     private let appearanceManager = AppearanceManager.shared
     private let hotkeyManager = HotkeyManager.shared
@@ -19,7 +21,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         setupHotkeys()
 
-        if !sessionManager.contexts.isEmpty && sessionManager.hasActiveIntention {
+        if sessionManager.isPaused && !sessionManager.contexts.isEmpty {
+            // Restored in paused state — show resume screen
+            updateMenu()
+            updateMenuBarTitle()
+            showResumeScreen()
+        } else if !sessionManager.contexts.isEmpty && sessionManager.hasActiveIntention {
             // Restored from disk with active intention — go straight to session
             updateMenu()
             updateMenuBarTitle()
@@ -44,6 +51,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .needsIntention,
             object: nil
         )
+
+        // Start idle auto-pause monitor
+        startIdleMonitor()
     }
 
     // MARK: - Menu Bar (The Chalice)
@@ -97,9 +107,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "Open Altar…", action: #selector(showAltar), keyEquivalent: "a"))
-            if sessionManager.hasActiveIntention {
-                menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
-                menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
+            if sessionManager.isPaused {
+                menu.addItem(NSMenuItem(title: "Resume", action: #selector(menuTogglePause), keyEquivalent: "p"))
+            } else {
+                menu.addItem(NSMenuItem(title: "Pause", action: #selector(menuTogglePause), keyEquivalent: "p"))
+                if sessionManager.hasActiveIntention {
+                    menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
+                    menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
+                }
             }
         }
 
@@ -112,7 +127,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateMenuBarTitle() {
-        if let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
+        if sessionManager.isPaused {
+            statusItem.button?.title = " ⏸ Paused"
+        } else if let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
             statusItem.button?.title = " \(ctx.label) \(sessionManager.remainingTimeFormatted)"
         } else {
             statusItem.button?.title = ""
@@ -133,7 +150,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.interruptSession()
         }
         hotkeyManager.setHandler(for: .openAltar) { [weak self] in
-            self?.toggleAltar()
+            guard let self else { return }
+            if self.sessionManager.isPaused && self.resumeWindow != nil {
+                // In resume mode → switch to full altar
+                self.dismissResumeScreen()
+                self.showAltar()
+            } else {
+                self.toggleAltar()
+            }
+        }
+        hotkeyManager.setHandler(for: .togglePause) { [weak self] in
+            self?.togglePause()
         }
         hotkeyManager.setHandler(for: .cycleNext) { [weak self] in
             self?.sessionManager.cycleNext()
@@ -301,7 +328,119 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = window
     }
 
+    // MARK: - Pause / Resume
+
+    private func togglePause() {
+        guard !sessionManager.contexts.isEmpty else { return }
+
+        if sessionManager.isPaused {
+            // Resume from pause
+            sessionManager.resume()
+            dismissResumeScreen()
+            if appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                showChalice()
+            }
+        } else {
+            // Pause
+            sessionManager.pause()
+            hideChalice()
+            showResumeScreen()
+        }
+        updateMenu()
+        updateMenuBarTitle()
+    }
+
+    private func showResumeScreen() {
+        guard resumeWindow == nil else { return }
+        guard let screen = NSScreen.main else { return }
+
+        let resumeView = ResumeView(
+            sessionManager: sessionManager,
+            onResume: { [weak self] in
+                guard let self else { return }
+                self.dismissResumeScreen()
+                if self.appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                    self.showChalice()
+                }
+                self.updateMenu()
+                self.updateMenuBarTitle()
+            },
+            onSwitchToAltar: { [weak self] in
+                guard let self else { return }
+                self.dismissResumeScreen()
+                self.showAltar()
+            }
+        )
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSHostingView(rootView: resumeView)
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.ignoresMouseEvents = false
+        window.makeKeyAndOrderFront(nil)
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeFirstResponder(window.contentView)
+
+        // Lock down same as altar
+        NSApp.presentationOptions = [
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication,
+            .disableAppleMenu,
+            .disableMenuBarTransparency,
+            .hideMenuBar,
+            .hideDock
+        ]
+
+        resumeWindow = window
+    }
+
+    private func dismissResumeScreen() {
+        NSApp.presentationOptions = []
+        resumeWindow?.orderOut(nil)
+        resumeWindow?.contentView = nil
+        resumeWindow = nil
+    }
+
+    // MARK: - Idle Auto-Pause
+
+    private func startIdleMonitor() {
+        stopIdleMonitor()
+        let minutes = appearanceManager.idleTimeoutMinutes
+        guard minutes > 0 else { return } // 0 = disabled
+
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.sessionManager.isPaused, self.sessionManager.hasActiveIntention else { return }
+                let idleSeconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
+                let idleSecondsKb = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+                let idle = min(idleSeconds, idleSecondsKb)
+                if idle >= Double(minutes) * 60 {
+                    self.togglePause()
+                }
+            }
+        }
+    }
+
+    private func stopIdleMonitor() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+
     // MARK: - Session Actions
+
+    @objc private func menuTogglePause() {
+        togglePause()
+    }
 
     @objc private func completeSession() {
         sessionManager.complete()
@@ -318,6 +457,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if sessionManager.contexts.isEmpty {
             hideChalice()
             showAltar()
+        } else {
+            // Restart idle monitor when session state changes
+            startIdleMonitor()
         }
     }
 
