@@ -25,6 +25,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updateMenuBarTitle()
             if appearanceManager.chaliceDisplay == .menuBarAndFloat {
                 showChalice()
+                chaliceWindow?.alphaValue = 0
+                DispatchQueue.main.async { [weak self] in
+                    if let frame = self?.chaliceFrame() {
+                        self?.chaliceWindow?.setFrame(frame, display: true)
+                    }
+                    self?.chaliceWindow?.alphaValue = 1
+                }
             }
         } else {
             showAltar()
@@ -212,29 +219,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - The Chalice (Floating Overlay)
 
-    private func showChalice() {
-        if let existing = chaliceWindow {
-            existing.level = .floating
-            existing.orderFrontRegardless()
-            return
-        }
-
-        guard let screen = NSScreen.main else { return }
-
-        let chaliceView = ChaliceView(sessionManager: sessionManager)
-
+    private func chaliceFrame() -> NSRect? {
+        guard let screen = NSScreen.main else { return nil }
         let windowWidth: CGFloat = 280
         let windowHeight: CGFloat = 120
         let padding: CGFloat = 20
-        let frame = NSRect(
+        return NSRect(
             x: screen.visibleFrame.maxX - windowWidth - padding,
             y: screen.visibleFrame.minY + padding,
             width: windowWidth,
             height: windowHeight
         )
+    }
+
+    private func showChalice() {
+        if let existing = chaliceWindow {
+            // Reposition to correct location (screen geometry may have changed)
+            if let frame = chaliceFrame() {
+                existing.setFrame(frame, display: false)
+            }
+            existing.level = .floating
+            existing.orderFrontRegardless()
+            existing.contentView?.needsDisplay = true
+            existing.contentView?.needsLayout = true
+            existing.displayIfNeeded()
+            return
+        }
+
+        let chaliceView = ChaliceView(sessionManager: sessionManager)
 
         let window = ChaliceWindow(
-            contentRect: frame,
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 120),
             styleMask: .borderless,
             backing: .buffered,
             defer: false
@@ -245,6 +260,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = true
+
+        // Position using setFrame (same path as reposition/cycling)
+        if let frame = chaliceFrame() {
+            window.setFrame(frame, display: true)
+        }
         window.orderFront(nil)
 
         chaliceWindow = window
