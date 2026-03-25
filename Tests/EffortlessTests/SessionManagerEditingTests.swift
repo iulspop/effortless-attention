@@ -131,4 +131,58 @@ struct SessionManagerEditingTests {
 
         #expect(mgr.contexts[0].currentTodo?.text == "Task 2")
     }
+
+    // MARK: - moveContext
+
+    @Test("moveContext swaps adjacent contexts")
+    func moveContextSwaps() {
+        let mgr = makeManager()
+        mgr.addContext(label: "A", intention: "t1", minutes: 5)
+        mgr.addContext(label: "B", intention: "t2", minutes: 5)
+        mgr.addContext(label: "C", intention: "t3", minutes: 5)
+
+        mgr.moveContext(from: 0, direction: 1)
+        #expect(mgr.contexts[0].label == "B")
+        #expect(mgr.contexts[1].label == "A")
+        #expect(mgr.contexts[2].label == "C")
+    }
+
+    @Test("moveContext tracks activeIndex when active context moves")
+    func moveContextTracksActive() {
+        let mgr = makeManager()
+        mgr.addContext(label: "A", intention: "t1", minutes: 5)
+        mgr.addContext(label: "B", intention: "t2", minutes: 5)
+        // Active is 0 (A)
+        #expect(mgr.activeIndex == 0)
+
+        mgr.moveContext(from: 0, direction: 1)
+        // A moved to index 1, activeIndex should follow
+        #expect(mgr.activeIndex == 1)
+        #expect(mgr.contexts[mgr.activeIndex].label == "A")
+    }
+
+    @Test("moveContext tracks activeIndex when displaced context is active")
+    func moveContextTracksDisplaced() {
+        let mgr = makeManager()
+        mgr.addContext(label: "A", intention: "t1", minutes: 5)
+        mgr.addContext(label: "B", intention: "t2", minutes: 5)
+        mgr.switchTo(index: 1) // active = B at index 1
+
+        mgr.moveContext(from: 0, direction: 1) // A moves to 1, B moves to 0
+        #expect(mgr.activeIndex == 0)
+        #expect(mgr.contexts[mgr.activeIndex].label == "B")
+    }
+
+    @Test("moveContext ignores out of bounds")
+    func moveContextOutOfBounds() {
+        let mgr = makeManager()
+        mgr.addContext(label: "A", intention: "t1", minutes: 5)
+        mgr.addContext(label: "B", intention: "t2", minutes: 5)
+
+        mgr.moveContext(from: 0, direction: -1) // can't go up
+        #expect(mgr.contexts[0].label == "A")
+
+        mgr.moveContext(from: 1, direction: 1) // can't go down
+        #expect(mgr.contexts[1].label == "B")
+    }
 }

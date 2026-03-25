@@ -263,6 +263,21 @@ class SessionManager: ObservableObject {
         notifyChange()
     }
 
+    func moveContext(from index: Int, direction: Int) {
+        let toIndex = index + direction
+        guard index >= 0, index < contexts.count,
+              toIndex >= 0, toIndex < contexts.count else { return }
+        contexts.swapAt(index, toIndex)
+
+        // Keep activeIndex pointing at the same context
+        if activeIndex == index {
+            activeIndex = toIndex
+        } else if activeIndex == toIndex {
+            activeIndex = index
+        }
+        notifyChange()
+    }
+
     func removeContext(at index: Int) {
         guard index >= 0, index < contexts.count else { return }
         contexts.remove(at: index)

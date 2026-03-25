@@ -87,6 +87,18 @@ struct AltarView: View {
             guard isWorkspaceMode else { return event }
 
             switch event.keyCode {
+            case 126 where event.modifierFlags.contains(.shift): // Shift+↑
+                if let sel = selectedIndex {
+                    sessionManager.moveContext(from: sel, direction: -1)
+                    selectedIndex = max(0, sel - 1)
+                }
+                return nil
+            case 125 where event.modifierFlags.contains(.shift): // Shift+↓
+                if let sel = selectedIndex {
+                    sessionManager.moveContext(from: sel, direction: 1)
+                    selectedIndex = min(sessionManager.contexts.count - 1, sel + 1)
+                }
+                return nil
             case 126: // ↑
                 moveSelection(-1)
                 return nil
@@ -290,6 +302,36 @@ struct AltarView: View {
                     Text("\(ctx.todosCompleted)/\(ctx.todosTotal)")
                         .font(.system(size: 11, weight: .light, design: .monospaced))
                         .foregroundColor(.secondary)
+                }
+
+                if isSelected && sessionManager.contexts.count > 1 {
+                    HStack(spacing: 2) {
+                        Button(action: {
+                            sessionManager.moveContext(from: index, direction: -1)
+                            selectedIndex = max(0, index - 1)
+                        }) {
+                            Text("▲")
+                                .font(.system(size: 10))
+                                .frame(width: 22, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(index == 0)
+                        .opacity(index == 0 ? 0.3 : 1)
+
+                        Button(action: {
+                            sessionManager.moveContext(from: index, direction: 1)
+                            selectedIndex = min(sessionManager.contexts.count - 1, index + 1)
+                        }) {
+                            Text("▼")
+                                .font(.system(size: 10))
+                                .frame(width: 22, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(index == sessionManager.contexts.count - 1)
+                        .opacity(index == sessionManager.contexts.count - 1 ? 0.3 : 1)
+                    }
                 }
             }
             .padding(.horizontal, 10)
