@@ -156,7 +156,7 @@ struct AltarView: View {
         HStack(alignment: .top, spacing: 0) {
             // Left: context list
             contextSidebar
-                .frame(width: 240)
+                .frame(width: 320)
 
             Divider()
                 .padding(.vertical, 20)
@@ -186,7 +186,7 @@ struct AltarView: View {
                     .frame(maxWidth: .infinity)
             }
         }
-        .frame(maxWidth: 900, maxHeight: 500)
+        .frame(maxWidth: 980, maxHeight: 500)
     }
 
     private func moveSelection(_ delta: Int) {
@@ -275,7 +275,7 @@ struct AltarView: View {
                         Text(ctx.label)
                             .font(.system(size: 13, weight: isActive ? .semibold : .regular, design: .serif))
                             .foregroundColor(.primary)
-                            .lineLimit(1)
+                            .lineLimit(2)
 
                         if isActive {
                             Circle()
@@ -288,7 +288,7 @@ struct AltarView: View {
                         Text(current.text)
                             .font(.system(size: 11, weight: .light, design: .serif))
                             .foregroundColor(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     } else {
                         Text("No intention")
                             .font(.system(size: 11, weight: .light, design: .serif))
