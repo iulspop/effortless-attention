@@ -243,6 +243,14 @@ class SessionManager: ObservableObject {
         }
     }
 
+    func updateTodoTimebox(_ minutes: Int, todoId: UUID, at contextIndex: Int) {
+        guard contextIndex >= 0, contextIndex < contexts.count, minutes > 0 else { return }
+        if let todoIndex = contexts[contextIndex].todos.firstIndex(where: { $0.id == todoId }) {
+            contexts[contextIndex].todos[todoIndex].timeboxMinutes = minutes
+            notifyChange()
+        }
+    }
+
     func moveTodo(todoId: UUID, direction: Int, at contextIndex: Int) {
         guard contextIndex >= 0, contextIndex < contexts.count else { return }
         guard let fromIndex = contexts[contextIndex].todos.firstIndex(where: { $0.id == todoId }) else { return }

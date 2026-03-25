@@ -756,9 +756,10 @@ struct ContextDetailView: View {
 
                                 Spacer()
 
-                                Text("\(todo.timeboxMinutes)m")
-                                    .font(.system(size: 12, weight: .light, design: .monospaced))
-                                    .foregroundColor(.secondary)
+                                EditableTimebox(
+                                    minutes: todo.timeboxMinutes,
+                                    onCommit: { sessionManager.updateTodoTimebox($0, todoId: todo.id, at: contextIndex) }
+                                )
 
                                 if !todo.completed {
                                     Button(action: {
@@ -987,6 +988,42 @@ struct EditableText: View {
                     isEditing = true
                 }
                 .help("Click to edit")
+        }
+    }
+}
+
+struct EditableTimebox: View {
+    let minutes: Int
+    let onCommit: (Int) -> Void
+
+    @State private var isEditing = false
+    @State private var editText: String = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        if isEditing {
+            TextField("", text: $editText)
+                .font(.system(size: 12, weight: .light, design: .monospaced))
+                .textFieldStyle(.plain)
+                .frame(width: 40)
+                .focused($isFocused)
+                .onSubmit {
+                    if let val = Int(editText.trimmingCharacters(in: .whitespaces)), val > 0 {
+                        onCommit(val)
+                    }
+                    isEditing = false
+                }
+                .onExitCommand { isEditing = false }
+                .onAppear {
+                    editText = "\(minutes)"
+                    isFocused = true
+                }
+        } else {
+            Text("\(minutes)m")
+                .font(.system(size: 12, weight: .light, design: .monospaced))
+                .foregroundColor(.secondary)
+                .onTapGesture { isEditing = true }
+                .help("Click to edit timebox")
         }
     }
 }

@@ -48,6 +48,28 @@ struct SessionManagerEditingTests {
         #expect(mgr.contexts[0].todos[0].text == "Task")
     }
 
+    // MARK: - updateTodoTimebox
+
+    @Test("updateTodoTimebox changes timebox minutes")
+    func updateTodoTimebox() {
+        let mgr = makeManager()
+        mgr.addContext(label: "Work", intention: "Task", minutes: 5)
+        let todoId = mgr.contexts[0].todos[0].id
+        mgr.updateTodoTimebox(25, todoId: todoId, at: 0)
+        #expect(mgr.contexts[0].todos[0].timeboxMinutes == 25)
+    }
+
+    @Test("updateTodoTimebox ignores zero or negative")
+    func updateTodoTimeboxInvalid() {
+        let mgr = makeManager()
+        mgr.addContext(label: "Work", intention: "Task", minutes: 10)
+        let todoId = mgr.contexts[0].todos[0].id
+        mgr.updateTodoTimebox(0, todoId: todoId, at: 0)
+        #expect(mgr.contexts[0].todos[0].timeboxMinutes == 10)
+        mgr.updateTodoTimebox(-5, todoId: todoId, at: 0)
+        #expect(mgr.contexts[0].todos[0].timeboxMinutes == 10)
+    }
+
     // MARK: - moveTodo
 
     @Test("moveTodo swaps todo down")
