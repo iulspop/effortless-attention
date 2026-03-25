@@ -16,5 +16,10 @@ let package = Package(
             dependencies: ["HotKey"],
             path: "Sources/Effortless"
         ),
+        .testTarget(
+            name: "EffortlessTests",
+            dependencies: ["Effortless"],
+            path: "Tests/EffortlessTests"
+        ),
     ]
 )

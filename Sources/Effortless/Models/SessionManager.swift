@@ -7,7 +7,7 @@ extension Notification.Name {
     static let timerExpired = Notification.Name("timerExpired")
 }
 
-private struct PersistedState: Codable {
+struct PersistedState: Codable {
     let contexts: [CognitiveContext]
     let activeIndex: Int
     var isPaused: Bool
@@ -34,11 +34,22 @@ class SessionManager: ObservableObject {
     @Published var isPaused: Bool = false
 
     private var timer: Timer?
-    private let logger = SessionLogger()
+    private let logger: SessionLogger
     private var lastTickDate: Date?
+    var stateFileURL: URL
 
     init() {
+        self.logger = SessionLogger()
+        self.stateFileURL = Self.defaultStateFile
         restoreState()
+    }
+
+    init(skipRestore: Bool, stateFileURL: URL? = nil, logger: SessionLogger? = nil) {
+        self.logger = logger ?? SessionLogger()
+        self.stateFileURL = stateFileURL ?? Self.defaultStateFile
+        if !skipRestore {
+            restoreState()
+        }
     }
 
     // MARK: - Computed Properties
@@ -354,7 +365,7 @@ class SessionManager: ObservableObject {
 
     // MARK: - Persistence
 
-    private static var stateFile: URL {
+    static var defaultStateFile: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("Effortless", isDirectory: true)
         return dir.appendingPathComponent("state.json")
@@ -362,21 +373,21 @@ class SessionManager: ObservableObject {
 
     private func persistState() {
         if contexts.isEmpty {
-            try? FileManager.default.removeItem(at: Self.stateFile)
+            try? FileManager.default.removeItem(at: stateFileURL)
             return
         }
         let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex, isPaused: isPaused)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         guard let data = try? encoder.encode(persisted) else { return }
-        let dir = Self.stateFile.deletingLastPathComponent()
+        let dir = stateFileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? data.write(to: Self.stateFile)
+        try? data.write(to: stateFileURL)
     }
 
     private func restoreState() {
-        guard FileManager.default.fileExists(atPath: Self.stateFile.path) else { return }
-        guard let data = try? Data(contentsOf: Self.stateFile) else { return }
+        guard FileManager.default.fileExists(atPath: stateFileURL.path) else { return }
+        guard let data = try? Data(contentsOf: stateFileURL) else { return }
         guard let persisted = try? JSONDecoder().decode(PersistedState.self, from: data) else { return }
         guard !persisted.contexts.isEmpty else { return }
         contexts = persisted.contexts
