@@ -4,18 +4,27 @@ import Combine
 extension Notification.Name {
     static let sessionStateChanged = Notification.Name("sessionStateChanged")
     static let needsIntention = Notification.Name("needsIntention")
+    static let needsInterruptionIntention = Notification.Name("needsInterruptionIntention")
     static let timerExpired = Notification.Name("timerExpired")
+}
+
+/// A saved position on the interruption stack — where to return when the interruption ends.
+struct InterruptionFrame: Codable {
+    let contextIndex: Int
+    let todo: TodoItem  // snapshot of the interrupted todo (for logging)
 }
 
 struct PersistedState: Codable {
     let contexts: [CognitiveContext]
     let activeIndex: Int
     var isPaused: Bool
+    var interruptionStack: [InterruptionFrame]
 
-    init(contexts: [CognitiveContext], activeIndex: Int, isPaused: Bool = false) {
+    init(contexts: [CognitiveContext], activeIndex: Int, isPaused: Bool = false, interruptionStack: [InterruptionFrame] = []) {
         self.contexts = contexts
         self.activeIndex = activeIndex
         self.isPaused = isPaused
+        self.interruptionStack = interruptionStack
     }
 
     init(from decoder: Decoder) throws {
@@ -23,6 +32,7 @@ struct PersistedState: Codable {
         contexts = try container.decode([CognitiveContext].self, forKey: .contexts)
         activeIndex = try container.decode(Int.self, forKey: .activeIndex)
         isPaused = try container.decodeIfPresent(Bool.self, forKey: .isPaused) ?? false
+        interruptionStack = try container.decodeIfPresent([InterruptionFrame].self, forKey: .interruptionStack) ?? []
     }
 }
 
@@ -32,6 +42,7 @@ class SessionManager: ObservableObject {
     @Published var activeIndex: Int = 0
     @Published var remainingTimeFormatted: String = ""
     @Published var isPaused: Bool = false
+    @Published var interruptionStack: [InterruptionFrame] = []
 
     private var timer: Timer?
     private let logger: SessionLogger
@@ -62,6 +73,16 @@ class SessionManager: ObservableObject {
     /// Whether the active context has a running intention
     var hasActiveIntention: Bool {
         activeContext?.hasActiveIntention ?? false
+    }
+
+    /// Whether we're currently in an escape-hatch interruption
+    var isInInterruption: Bool {
+        !interruptionStack.isEmpty
+    }
+
+    /// How deep the interruption nesting is (0 = main flow)
+    var interruptionDepth: Int {
+        interruptionStack.count
     }
 
     // MARK: - Pause / Resume
@@ -158,6 +179,7 @@ class SessionManager: ObservableObject {
     func switchTo(index: Int) {
         guard index >= 0, index < contexts.count else { return }
         guard index != activeIndex else { return }
+        guard !isInInterruption else { return } // Can't context-switch during interruption
 
         // Pause current — snapshot elapsed time
         accumulateElapsed(at: activeIndex)
@@ -173,13 +195,13 @@ class SessionManager: ObservableObject {
     }
 
     func cycleNext() {
-        guard contexts.count > 1 else { return }
+        guard contexts.count > 1, !isInInterruption else { return }
         let next = (activeIndex + 1) % contexts.count
         switchTo(index: next)
     }
 
     func cyclePrev() {
-        guard contexts.count > 1 else { return }
+        guard contexts.count > 1, !isInInterruption else { return }
         let prev = (activeIndex - 1 + contexts.count) % contexts.count
         switchTo(index: prev)
     }
@@ -195,14 +217,78 @@ class SessionManager: ObservableObject {
         notifyChange()
     }
 
+    /// Initiates the escape hatch flow. Pauses the current todo's timer and posts
+    /// a notification so the UI can prompt for the interruption intention.
+    /// If already in an interruption, the UI should show a guardrail confirmation first.
     func interrupt() {
         guard activeIndex >= 0, activeIndex < contexts.count else { return }
         guard let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
 
+        // Snapshot elapsed time before pausing
         accumulateElapsed(at: activeIndex)
-        logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .interrupted)
-        contexts[activeIndex].todos[todoIndex].completed = true
-        advanceAfterTodoFinished()
+        stopTimer()
+
+        // Push current position onto the stack
+        let frame = InterruptionFrame(
+            contextIndex: activeIndex,
+            todo: contexts[activeIndex].todos[todoIndex]
+        )
+        interruptionStack.append(frame)
+
+        // Signal the UI to show the escape-hatch prompt
+        NotificationCenter.default.post(name: .needsInterruptionIntention, object: nil)
+        notifyChange()
+    }
+
+    /// Cancels the most recent interrupt() — user decided not to go through with the escape hatch.
+    /// Pops the frame and restarts the original timer.
+    func cancelInterrupt() {
+        guard !interruptionStack.isEmpty else { return }
+        interruptionStack.removeLast()
+        if hasActiveIntention {
+            startTimer()
+        }
+        notifyChange()
+    }
+
+    /// Called after the user declares what they're interrupting for.
+    /// Creates an ephemeral context with a single todo and starts its timer.
+    func beginInterruption(intention: String, minutes: Int) {
+        let todo = TodoItem(text: intention, timeboxMinutes: minutes)
+        let ctx = CognitiveContext(label: "⚡ Interruption", todos: [todo])
+        contexts.append(ctx)
+        activeIndex = contexts.count - 1
+        startTimer()
+        notifyChange()
+    }
+
+    /// Completes/discards the current interruption and pops back to the previous context.
+    func completeInterruption() {
+        guard !interruptionStack.isEmpty else { return }
+
+        // Log the interruption todo
+        if activeIndex >= 0, activeIndex < contexts.count,
+           let todoIndex = contexts[activeIndex].currentTodoIndex {
+            accumulateElapsed(at: activeIndex)
+            logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .interrupted)
+        }
+
+        // Remove the ephemeral interruption context
+        if activeIndex >= 0, activeIndex < contexts.count {
+            contexts.remove(at: activeIndex)
+        }
+
+        // Pop the stack and restore previous position
+        let frame = interruptionStack.removeLast()
+
+        // Adjust the saved contextIndex if contexts shifted
+        let restoredIndex = min(frame.contextIndex, contexts.count - 1)
+        activeIndex = max(0, restoredIndex)
+
+        // Resume the original todo's timer
+        if hasActiveIntention {
+            startTimer()
+        }
         notifyChange()
     }
 
@@ -399,7 +485,7 @@ class SessionManager: ObservableObject {
             try? FileManager.default.removeItem(at: stateFileURL)
             return
         }
-        let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex, isPaused: isPaused)
+        let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex, isPaused: isPaused, interruptionStack: interruptionStack)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         guard let data = try? encoder.encode(persisted) else { return }
@@ -416,6 +502,7 @@ class SessionManager: ObservableObject {
         contexts = persisted.contexts
         activeIndex = min(persisted.activeIndex, persisted.contexts.count - 1)
         isPaused = persisted.isPaused
+        interruptionStack = persisted.interruptionStack
         if !isPaused && contexts[activeIndex].hasActiveIntention {
             startTimer()
         }

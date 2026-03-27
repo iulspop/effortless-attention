@@ -29,7 +29,8 @@ precious, to be cared for jealously and only given worthily.
 Effortless {
   State {
     session: Session | null
-    flowState: idle | altar | active | reflecting
+    flowState: idle | altar | active | escapeHatch | reflecting
+    interruptionStack: [EphemeralContext]  // depth 0 = main flow
     contextStream: stream of { app, windowTitle, timestamp }
   }
 
@@ -82,7 +83,100 @@ Effortless {
     }
   }
 
-  ## The Mirror (v0.3)
+  ## Interruptions (Escape Hatch)
+
+  An interruption is giving in to a distraction — abandoning the current
+  intention before reaching its outcome to do something else. It may be
+  legitimate ("boss called, must respond") or impulsive ("let me check
+  Amazon real quick"). Either way, the system makes the cognitive cost
+  visible without blocking it.
+
+  Key distinctions:
+  - **Interruption**: you *decide* to change intention before completing it.
+    "I'm going to stop doing X and do Y instead."
+  - **Distraction**: a *prompt* to interrupt (internal thought, external stimulus)
+    that you must spend cognitive effort to ignore. Distractions become
+    interruptions only when you give in.
+  - **Context switch**: navigating between pre-declared contexts. A different
+    kind of transition — stays as-is, not treated as an interruption.
+
+  The goal: reduce both interruptions and distractions. A clean cognitive
+  graph looks like flow state — one thing at a time, right cognitive load.
+
+  InterruptionFlow {
+    trigger: existing interrupt hotkey / menu action
+    effect: opens ephemeral "escape hatch" context
+
+    EphemeralContext {
+      A single todo — the interruption intention.
+      User declares what they're interrupting *for* + sets a timebox.
+      Same prompt as regular intention, but visually distinct:
+      escape-hatch mode — different background/style to make it feel
+      like a detour, not a destination.
+      The context *is* the todo — no context label needed.
+
+      The original todo's timer pauses while in the interruption.
+    }
+
+    Completing an interruption {
+      One action returns you to the previous context/todo.
+      Semantically it covers both:
+        - "I finished the detour, going back" (completed)
+        - "I caught myself, discarding and going back" (discarded)
+      The system pops you back one level in the interruption stack.
+    }
+
+    Nesting {
+      Interruptions can nest (stack). If you interrupt an interruption,
+      a guardrail prompt asks: "You're already in an interruption.
+      Really interrupt again?" If confirmed, a new level is pushed
+      onto the stack. Completing any level pops back to the previous.
+      Future: experiment with blocking nesting entirely.
+    }
+
+    Constraints {
+      You cannot context-switch while in an interruption — you must
+      complete/discard it first and return to the main flow.
+      The escape-hatch visual treatment is always present so you
+      feel the cognitive weight of the detour.
+    }
+  }
+
+  ## The Cognitive Graph (Mirror View)
+
+  A timeline visualization of every cognitive transition during the day.
+  Each node is an intention (todo). Each edge is a transition: completion,
+  interruption, or context switch.
+
+  CognitiveGraph {
+    nodes: intentions (todos) — what you gave attention to
+    edges: transitions between intentions, typed:
+      - completion (clean — finished the intention)
+      - interruption (friction — abandoned for something unplanned)
+      - context switch (neutral — moved between declared contexts)
+
+    The graph is always linear — only one thing active at a time,
+    only one transition possible at a time.
+
+    Visualized as a full-day timeline. At a glance you see:
+    - How many clean completions vs. interruptions
+    - Where the interruption clusters are
+    - How deep the nesting went
+    - The overall shape of your cognitive flow
+
+    A clean graph = flow state. Jagged with interruptions = fragmented.
+    The graph is the mirror — it shows you your day without judgment.
+  }
+
+  TransitionEvent {
+    timestamp: Date
+    from: { contextId, todoId, todoText }
+    to: { contextId, todoId, todoText } | EphemeralInterruption
+    type: completion | interruption | contextSwitch
+    interruptionDepth: Int  // 0 = main flow, 1+ = nested interruption
+  }
+
+  ## The LLM Mirror (v0.3)
 
   A local LLM that watches your active context — app names, window titles,
   time patterns — and reflects when your flow drifts from your stated intention.
@@ -118,6 +212,7 @@ Effortless {
     endedAt: Date | null
     outcome: completed | interrupted | expired
     contextTimeline: [{ app, windowTitle, timestamp }]  // v0.2
+    transitions: [TransitionEvent]  // cognitive graph edges
     reflection: String | null  // v0.3
   }
 
@@ -138,21 +233,26 @@ Effortless {
   stateDiagram-v2
       [*] --> Altar
       Altar --> Active: intention + timebox set
-      Active --> Reflecting: user completes
-      Active --> Altar: user interrupts
+      Active --> Reflecting: user completes todo
+      Active --> EscapeHatch: user interrupts
       Active --> Altar: timer expires
+      EscapeHatch --> Active: interruption completed/discarded
+      EscapeHatch --> EscapeHatch: nested interruption (with guardrail)
       Reflecting --> Altar: reflection acknowledged
   ```
 
   fn begin(intention, minutes);
   fn complete;
-  fn interrupt;
+  fn interrupt;  // opens escape hatch, pushes onto interruption stack
+  fn completeInterruption;  // pops stack, returns to previous context
   fn expire;
 
   match (flowState) {
     case idle => show altar
     case altar => await intention
     case active => run timer, show chalice, monitor context
+    case escapeHatch => pause original timer, run interruption timer,
+                        show escape-hatch visual treatment
     case reflecting => show reflection prompt, then return to altar
   }
 

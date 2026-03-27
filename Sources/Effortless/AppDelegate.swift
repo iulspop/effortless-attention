@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var resumeWindow: NSWindow?
     private var expiryWindow: NSWindow?
+    private var interruptionWindow: NSWindow?
     private var idleTimer: Timer?
     private let sessionManager = SessionManager()
     private let appearanceManager = AppearanceManager.shared
@@ -58,6 +59,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(timerExpired),
             name: .timerExpired,
+            object: nil
+        )
+
+        // Listen for interruption escape hatch prompt
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(needsInterruptionIntention),
+            name: .needsInterruptionIntention,
             object: nil
         )
 
@@ -121,7 +130,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 menu.addItem(NSMenuItem(title: "Pause", action: #selector(menuTogglePause), keyEquivalent: "p"))
                 if sessionManager.hasActiveIntention {
-                    menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
+                    if sessionManager.isInInterruption {
+                        menu.addItem(NSMenuItem(title: "Complete Interruption", action: #selector(completeSession), keyEquivalent: "d"))
+                    } else {
+                        menu.addItem(NSMenuItem(title: "Complete", action: #selector(completeSession), keyEquivalent: "d"))
+                    }
                     menu.addItem(NSMenuItem(title: "Interrupt", action: #selector(interruptSession), keyEquivalent: "i"))
                 }
             }
@@ -138,6 +151,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenuBarTitle() {
         if sessionManager.isPaused {
             statusItem.button?.title = " ⏸ Paused"
+        } else if sessionManager.isInInterruption, let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
+            statusItem.button?.title = " ⚡ \(ctx.currentTodo?.text ?? "Interruption") \(sessionManager.remainingTimeFormatted)"
         } else if let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
             statusItem.button?.title = " \(ctx.label) \(sessionManager.remainingTimeFormatted)"
         } else {
@@ -474,11 +489,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func completeSession() {
-        sessionManager.complete()
+        if sessionManager.isInInterruption {
+            sessionManager.completeInterruption()
+        } else {
+            sessionManager.complete()
+        }
     }
 
     @objc private func interruptSession() {
+        // If already showing the interruption prompt, ignore
+        guard interruptionWindow == nil else { return }
         sessionManager.interrupt()
+    }
+
+    @objc private func needsInterruptionIntention() {
+        hideChalice()
+        showInterruptionPrompt()
     }
 
     @objc private func sessionStateChanged() {
@@ -564,6 +590,70 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         expiryWindow?.orderOut(nil)
         expiryWindow?.contentView = nil
         expiryWindow = nil
+    }
+
+    // MARK: - Interruption Prompt (Escape Hatch)
+
+    private func showInterruptionPrompt() {
+        guard interruptionWindow == nil else { return }
+        guard let screen = NSScreen.main else { return }
+
+        let promptView = InterruptionPromptView(
+            interruptionDepth: sessionManager.interruptionDepth - 1, // depth before this interrupt
+            onConfirm: { [weak self] intention, minutes in
+                self?.sessionManager.beginInterruption(intention: intention, minutes: minutes)
+                self?.dismissInterruptionPrompt()
+                if self?.appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                    self?.showChalice()
+                }
+                self?.updateMenu()
+                self?.updateMenuBarTitle()
+            },
+            onCancel: { [weak self] in
+                self?.sessionManager.cancelInterrupt()
+                self?.dismissInterruptionPrompt()
+                if self?.appearanceManager.chaliceDisplay == .menuBarAndFloat {
+                    self?.showChalice()
+                }
+            }
+        )
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSHostingView(rootView: promptView)
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.ignoresMouseEvents = false
+        window.makeKeyAndOrderFront(nil)
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeFirstResponder(window.contentView)
+
+        NSApp.presentationOptions = [
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication,
+            .disableAppleMenu,
+            .disableMenuBarTransparency,
+            .hideMenuBar,
+            .hideDock
+        ]
+
+        interruptionWindow = window
+    }
+
+    private func dismissInterruptionPrompt() {
+        NSApp.presentationOptions = []
+        interruptionWindow?.orderOut(nil)
+        interruptionWindow?.contentView = nil
+        interruptionWindow = nil
     }
 
     @objc private func chaliceDisplayChanged() {

@@ -52,25 +52,27 @@ struct SessionManagerCompletionTests {
         #expect(mgr.contexts[0].todos[0].completed)
     }
 
-    // MARK: - interrupt()
+    // MARK: - interrupt() (escape hatch)
 
-    @Test("interrupt marks current todo as completed (logged as interrupted)")
-    func interruptMarksDone() {
+    @Test("interrupt opens escape hatch — does NOT mark todo completed")
+    func interruptOpensEscapeHatch() {
         let mgr = makeManager()
         mgr.addContext(label: "Work", intention: "Task 1", minutes: 25)
         mgr.interrupt()
 
-        #expect(mgr.contexts[0].todos[0].completed)
+        #expect(!mgr.contexts[0].todos[0].completed)
+        #expect(mgr.isInInterruption)
     }
 
-    @Test("interrupt advances to next todo in queue")
-    func interruptAdvances() {
+    @Test("interrupt preserves current todo position")
+    func interruptPreservesPosition() {
         let mgr = makeManager()
         mgr.addContext(label: "Work", intention: "Task 1", minutes: 25)
         mgr.addTodoToActiveContext(text: "Task 2", minutes: 10)
         mgr.interrupt()
 
-        #expect(mgr.contexts[0].currentTodo?.text == "Task 2")
+        // Still on Task 1 — not advanced
+        #expect(mgr.contexts[0].currentTodo?.text == "Task 1")
     }
 
     // MARK: - advanceAfterTodoFinished (tested via complete/interrupt)
