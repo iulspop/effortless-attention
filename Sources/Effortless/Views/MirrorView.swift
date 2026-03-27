@@ -84,16 +84,22 @@ struct MirrorView: View {
 
     @State private var currentTime = Date()
     @State private var keyMonitor: Any?
+    @State private var magnifyMonitor: Any?
+    @State private var zoomLevel: CGFloat = 1.0
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
+    private let minZoom: CGFloat = 0.3
+    private let maxZoom: CGFloat = 3.0
+    private let zoomStep: CGFloat = 0.2
 
     private var layout: TimelineLayout {
         TimelineLayout.build(from: events)
     }
 
-    // Layout constants
-    private let railSpacing: CGFloat = 120
-    private let rowHeight: CGFloat = 64
-    private let nodeRadius: CGFloat = 5
+    // Base layout constants (scaled by zoomLevel)
+    private var railSpacing: CGFloat { 120 * zoomLevel }
+    private var rowHeight: CGFloat { 64 * zoomLevel }
+    private var nodeRadius: CGFloat { 5 * zoomLevel }
     private let timeColumnWidth: CGFloat = 50
 
     var body: some View {
@@ -124,11 +130,23 @@ struct MirrorView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onReceive(timer) { currentTime = $0 }
-        .onAppear { installKeyMonitor() }
+        .onAppear { installKeyMonitor(); installMagnificationMonitor() }
         .onDisappear { removeKeyMonitor() }
     }
 
     // MARK: - Key Monitor
+
+    private func zoomIn() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            zoomLevel = min(zoomLevel + zoomStep, maxZoom)
+        }
+    }
+
+    private func zoomOut() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            zoomLevel = max(zoomLevel - zoomStep, minZoom)
+        }
+    }
 
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -136,7 +154,34 @@ struct MirrorView: View {
                 onDismiss()
                 return nil
             }
+            // + or = key (zoom in)
+            if event.keyCode == 24 {
+                zoomIn()
+                return nil
+            }
+            // - key (zoom out)
+            if event.keyCode == 27 {
+                zoomOut()
+                return nil
+            }
+            // 0 key (reset zoom)
+            if event.keyCode == 29 {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    zoomLevel = 1.0
+                }
+                return nil
+            }
             return event
+        }
+    }
+
+    private func installMagnificationMonitor() {
+        magnifyMonitor = NSEvent.addLocalMonitorForEvents(matching: .magnify) { event in
+            let newZoom = zoomLevel + event.magnification
+            withAnimation(.easeOut(duration: 0.05)) {
+                zoomLevel = min(max(newZoom, minZoom), maxZoom)
+            }
+            return nil
         }
     }
 
@@ -144,6 +189,10 @@ struct MirrorView: View {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
+        }
+        if let monitor = magnifyMonitor {
+            NSEvent.removeMonitor(monitor)
+            magnifyMonitor = nil
         }
     }
 
@@ -206,9 +255,9 @@ struct MirrorView: View {
             let isInterruption = label == "⚡ Interruption"
 
             Text(isInterruption ? "⚡" : label)
-                .font(.system(size: 11, weight: .regular, design: .serif))
+                .font(.system(size: 11 * zoomLevel, weight: .regular, design: .serif))
                 .foregroundColor(isInterruption ? .orange.opacity(0.6) : .secondary.opacity(0.4))
-                .position(x: railX(rail, layout: lay), y: 16)
+                .position(x: railX(rail, layout: lay), y: 16 * zoomLevel)
         }
     }
 
@@ -229,17 +278,17 @@ struct MirrorView: View {
             // Label below node
             VStack(spacing: 1) {
                 Text(node.event.to.todoText)
-                    .font(.system(size: 12, weight: .regular, design: .serif))
+                    .font(.system(size: 12 * zoomLevel, weight: .regular, design: .serif))
                     .foregroundColor(.primary.opacity(0.8))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
 
                 Text(timeLabel(node.event.timestamp))
-                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .font(.system(size: 10 * zoomLevel, weight: .regular, design: .monospaced))
                     .foregroundColor(.secondary.opacity(0.4))
             }
             .frame(width: railSpacing - 16)
-            .padding(.top, 4)
+            .padding(.top, 4 * zoomLevel)
         }
         .position(x: x, y: y)
     }
@@ -271,8 +320,8 @@ struct MirrorView: View {
             }
         }
         .stroke(color, style: StrokeStyle(
-            lineWidth: isInterruption ? 1.5 : 1,
-            dash: conn.type == .contextSwitch ? [4, 4] : []
+            lineWidth: (isInterruption ? 1.5 : 1) * zoomLevel,
+            dash: conn.type == .contextSwitch ? [4 * zoomLevel, 4 * zoomLevel] : []
         ))
     }
 
@@ -283,12 +332,12 @@ struct MirrorView: View {
         let lastRail = lay.nodes.last?.rail ?? 0
         let x = railX(lastRail, layout: lay)
 
-        return VStack(spacing: 2) {
+        return VStack(spacing: 2 * zoomLevel) {
             Circle()
-                .stroke(Color.primary.opacity(0.25), lineWidth: 1.5)
+                .stroke(Color.primary.opacity(0.25), lineWidth: 1.5 * zoomLevel)
                 .frame(width: nodeRadius * 2, height: nodeRadius * 2)
             Text("now")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.system(size: 10 * zoomLevel, weight: .medium, design: .monospaced))
                 .foregroundColor(.secondary.opacity(0.35))
         }
         .position(x: x, y: y)
@@ -309,15 +358,15 @@ struct MirrorView: View {
         // ScrollView scrolls to "now" at bottom. So row 0 = top of content = earliest = past.
         // That means past is at top of scroll content, present at bottom.
         // User scrolls down to see present. "now" anchor scrolls to bottom.
-        return CGFloat(row) * rowHeight + 48 // 48 offset for rail headers
+        return CGFloat(row) * rowHeight + 48 * zoomLevel // offset for rail headers
     }
 
     private func graphWidth(_ lay: TimelineLayout) -> CGFloat {
-        max(CGFloat(lay.railCount) * railSpacing + 80, 400)
+        max(CGFloat(lay.railCount) * railSpacing + 80 * zoomLevel, 400)
     }
 
     private func graphHeight(_ lay: TimelineLayout) -> CGFloat {
-        CGFloat(lay.nodes.count + 1) * rowHeight + 96
+        CGFloat(lay.nodes.count + 1) * rowHeight + 96 * zoomLevel
     }
 
     // MARK: - Helpers
