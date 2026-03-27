@@ -128,6 +128,10 @@ class SessionManager: ObservableObject {
 
     /// Mark the expired todo as complete and advance
     func completeExpired() {
+        if isInInterruption {
+            completeInterruption()
+            return
+        }
         guard activeIndex >= 0, activeIndex < contexts.count,
               let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
         logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .expired)
@@ -207,6 +211,10 @@ class SessionManager: ObservableObject {
     }
 
     func complete() {
+        if isInInterruption {
+            completeInterruption()
+            return
+        }
         guard activeIndex >= 0, activeIndex < contexts.count else { return }
         guard let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
 
