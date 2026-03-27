@@ -215,7 +215,7 @@ struct MirrorView: View {
         let lay = layout
 
         return ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView([.vertical, .horizontal], showsIndicators: false) {
                 ZStack(alignment: .topLeading) {
                     // Rail labels at top
                     railHeaders(lay)
@@ -238,7 +238,6 @@ struct MirrorView: View {
                     width: graphWidth(lay),
                     height: graphHeight(lay)
                 )
-                .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             }
             .onAppear {
