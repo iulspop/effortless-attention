@@ -18,6 +18,7 @@ struct TimelineConnector: Identifiable {
     let toRail: Int
     let toRow: Int
     let type: TransitionEvent.TransitionType
+    let duration: TimeInterval  // seconds between from and to events
 }
 
 /// Pre-processed layout derived from raw events.
@@ -57,12 +58,14 @@ struct TimelineLayout {
             // Connect from previous node
             if row > 0 {
                 let prevNode = nodes[row - 1]
+                let elapsed = event.timestamp.timeIntervalSince(prevNode.event.timestamp)
                 connectors.append(TimelineConnector(
                     fromRail: prevNode.rail,
                     fromRow: prevNode.row,
                     toRail: rail,
                     toRow: row,
-                    type: event.type
+                    type: event.type,
+                    duration: elapsed
                 ))
             }
         }
@@ -303,25 +306,44 @@ struct MirrorView: View {
         let isInterruption = conn.type == .interruption
         let color = isInterruption ? Color.orange.opacity(0.4) : Color.primary.opacity(0.1)
 
-        return Path { path in
-            path.move(to: CGPoint(x: fromX, y: fromY))
-            if conn.fromRail == conn.toRail {
-                // Vertical — same rail
-                path.addLine(to: CGPoint(x: toX, y: toY))
-            } else {
-                // Cross-rail — curve from one rail to another
-                let midY = (fromY + toY) / 2
-                path.addCurve(
-                    to: CGPoint(x: toX, y: toY),
-                    control1: CGPoint(x: fromX, y: midY),
-                    control2: CGPoint(x: toX, y: midY)
-                )
+        let midX = (fromX + toX) / 2
+        let midY = (fromY + toY) / 2
+
+        return ZStack {
+            Path { path in
+                path.move(to: CGPoint(x: fromX, y: fromY))
+                if conn.fromRail == conn.toRail {
+                    path.addLine(to: CGPoint(x: toX, y: toY))
+                } else {
+                    path.addCurve(
+                        to: CGPoint(x: toX, y: toY),
+                        control1: CGPoint(x: fromX, y: midY),
+                        control2: CGPoint(x: toX, y: midY)
+                    )
+                }
             }
+            .stroke(color, style: StrokeStyle(
+                lineWidth: (isInterruption ? 1.5 : 1) * zoomLevel,
+                dash: conn.type == .contextSwitch ? [4 * zoomLevel, 4 * zoomLevel] : []
+            ))
+
+            // Duration label at midpoint of connector
+            Text(durationLabel(conn.duration))
+                .font(.system(size: 9 * zoomLevel, weight: .regular, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.5))
+                .position(x: conn.fromRail == conn.toRail ? midX + 24 * zoomLevel : midX, y: midY)
         }
-        .stroke(color, style: StrokeStyle(
-            lineWidth: (isInterruption ? 1.5 : 1) * zoomLevel,
-            dash: conn.type == .contextSwitch ? [4 * zoomLevel, 4 * zoomLevel] : []
-        ))
+    }
+
+    private func durationLabel(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        if total < 60 { return "\(total)s" }
+        let m = total / 60
+        let s = total % 60
+        if m < 60 { return s > 0 ? "\(m)m \(s)s" : "\(m)m" }
+        let h = m / 60
+        let rm = m % 60
+        return rm > 0 ? "\(h)h \(rm)m" : "\(h)h"
     }
 
     // MARK: - Now Marker
