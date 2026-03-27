@@ -742,9 +742,23 @@ struct ContextDetailView: View {
 
                         ForEach(ctx.todos) { todo in
                             HStack(spacing: 8) {
-                                Image(systemName: todo.completed ? "checkmark.circle.fill" : (todo.id == ctx.currentTodo?.id ? "arrow.right.circle.fill" : "circle"))
-                                    .foregroundColor(todo.completed ? .green : (todo.id == ctx.currentTodo?.id ? .accentColor : .secondary))
-                                    .font(.system(size: 16))
+                                Group {
+                                    if todo.completed {
+                                        Button(action: {
+                                            sessionManager.uncompleteTodo(todoId: todo.id, at: contextIndex)
+                                        }) {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundColor(.green)
+                                                .font(.system(size: 16))
+                                                .contentShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        Image(systemName: todo.id == ctx.currentTodo?.id ? "arrow.right.circle.fill" : "circle")
+                                            .foregroundColor(todo.id == ctx.currentTodo?.id ? .accentColor : .secondary)
+                                            .font(.system(size: 16))
+                                    }
+                                }
 
                                 EditableText(
                                     text: todo.text,

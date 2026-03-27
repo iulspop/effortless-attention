@@ -357,6 +357,16 @@ class SessionManager: ObservableObject {
         notifyChange()
     }
 
+    func uncompleteTodo(todoId: UUID, at contextIndex: Int) {
+        guard contextIndex >= 0, contextIndex < contexts.count else { return }
+        guard let todoIndex = contexts[contextIndex].todos.firstIndex(where: { $0.id == todoId }) else { return }
+        guard contexts[contextIndex].todos[todoIndex].completed else { return }
+
+        contexts[contextIndex].todos[todoIndex].completed = false
+        contexts[contextIndex].todos[todoIndex].elapsedSeconds = 0
+        notifyChange()
+    }
+
     func moveContext(from index: Int, direction: Int) {
         let toIndex = index + direction
         guard index >= 0, index < contexts.count,
@@ -481,10 +491,6 @@ class SessionManager: ObservableObject {
     }
 
     private func persistState() {
-        if contexts.isEmpty {
-            try? FileManager.default.removeItem(at: stateFileURL)
-            return
-        }
         let persisted = PersistedState(contexts: contexts, activeIndex: activeIndex, isPaused: isPaused, interruptionStack: interruptionStack)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted

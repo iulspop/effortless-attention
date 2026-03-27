@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import Effortless
 
 @Suite("SessionManager — Context Lifecycle")
@@ -6,7 +7,10 @@ import Testing
 struct SessionManagerContextTests {
     /// Create a clean SessionManager for testing (no disk restore, no real timer effects)
     private func makeSUT() -> SessionManager {
-        SessionManager(skipRestore: true)
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("state.json")
+        return SessionManager(skipRestore: true, stateFileURL: tempFile)
     }
 
     // MARK: - addContext

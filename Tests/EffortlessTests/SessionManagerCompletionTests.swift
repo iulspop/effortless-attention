@@ -4,7 +4,10 @@ import Foundation
 
 @MainActor
 private func makeManager() -> SessionManager {
-    SessionManager(skipRestore: true)
+    let tempFile = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+        .appendingPathComponent("state.json")
+    return SessionManager(skipRestore: true, stateFileURL: tempFile)
 }
 
 @Suite("SessionManager — Todo Completion Flow")

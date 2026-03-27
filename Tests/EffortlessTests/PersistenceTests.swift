@@ -57,8 +57,8 @@ struct PersistenceTests {
         #expect(mgr2.isPaused)
     }
 
-    @Test("empty contexts deletes state file")
-    func emptyContextsDeletesFile() {
+    @Test("empty contexts persists empty state (does not delete file)")
+    func emptyContextsPersistsEmptyState() throws {
         let dir = makeTempDir()
         defer { cleanup(dir) }
         let stateFile = dir.appendingPathComponent("state.json")
@@ -68,7 +68,11 @@ struct PersistenceTests {
         #expect(FileManager.default.fileExists(atPath: stateFile.path))
 
         mgr.removeContext(at: 0)
-        #expect(!FileManager.default.fileExists(atPath: stateFile.path))
+        #expect(FileManager.default.fileExists(atPath: stateFile.path))
+
+        // Restoring from the empty-state file should yield empty contexts
+        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        #expect(mgr2.contexts.isEmpty)
     }
 
     @Test("backward compatibility: old JSON without isPaused decodes with default false")
