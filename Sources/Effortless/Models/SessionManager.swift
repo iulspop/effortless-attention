@@ -170,6 +170,9 @@ class SessionManager: ObservableObject {
 
     func addTodoToActiveContext(text: String, minutes: Int) {
         guard !contexts.isEmpty, activeIndex >= 0, activeIndex < contexts.count else { return }
+        let hadActive = contexts[activeIndex].hasActiveIntention
+        let fromSnap = currentSnapshot()
+
         let todo = TodoItem(text: text, timeboxMinutes: minutes)
         contexts[activeIndex].todos.append(todo)
 
@@ -177,17 +180,30 @@ class SessionManager: ObservableObject {
         if timer == nil && contexts[activeIndex].hasActiveIntention {
             startTimer()
         }
+
+        // Log start transition when resuming work in a context that had no active todo
+        if !hadActive, let to = currentSnapshot() {
+            logTransition(.start, from: fromSnap, to: to)
+        }
         notifyChange()
     }
 
     func addTodo(text: String, minutes: Int, at contextIndex: Int) {
         guard contextIndex >= 0, contextIndex < contexts.count else { return }
+        let hadActive = contextIndex == activeIndex && contexts[contextIndex].hasActiveIntention
+        let fromSnap = contextIndex == activeIndex ? currentSnapshot() : nil
+
         let todo = TodoItem(text: text, timeboxMinutes: minutes)
         contexts[contextIndex].todos.append(todo)
 
         // Start timer if this is the active context and it now has an intention
         if contextIndex == activeIndex && timer == nil && contexts[contextIndex].hasActiveIntention {
             startTimer()
+        }
+
+        // Log start transition when adding a todo reactivates the active context
+        if contextIndex == activeIndex && !hadActive, let to = currentSnapshot() {
+            logTransition(.start, from: fromSnap, to: to)
         }
         notifyChange()
     }
@@ -512,25 +528,26 @@ class SessionManager: ObservableObject {
     // MARK: - Transition Logging
 
     /// Snapshot the current active intention for transition events.
+    /// Returns nil only when there are no contexts at all.
     private func currentSnapshot() -> CognitiveSnapshot? {
-        guard activeIndex >= 0, activeIndex < contexts.count,
-              let todo = contexts[activeIndex].currentTodo else { return nil }
+        guard activeIndex >= 0, activeIndex < contexts.count else { return nil }
+        let todo = contexts[activeIndex].currentTodo
         return CognitiveSnapshot(
             contextId: contexts[activeIndex].id,
             contextLabel: contexts[activeIndex].label,
-            todoId: todo.id,
-            todoText: todo.text
+            todoId: todo?.id ?? contexts[activeIndex].id,
+            todoText: todo?.text ?? "(idle)"
         )
     }
 
     private func snapshot(at index: Int) -> CognitiveSnapshot? {
-        guard index >= 0, index < contexts.count,
-              let todo = contexts[index].currentTodo else { return nil }
+        guard index >= 0, index < contexts.count else { return nil }
+        let todo = contexts[index].currentTodo
         return CognitiveSnapshot(
             contextId: contexts[index].id,
             contextLabel: contexts[index].label,
-            todoId: todo.id,
-            todoText: todo.text
+            todoId: todo?.id ?? contexts[index].id,
+            todoText: todo?.text ?? "(idle)"
         )
     }
 
