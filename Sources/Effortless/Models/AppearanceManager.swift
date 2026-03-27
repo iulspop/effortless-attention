@@ -78,7 +78,7 @@ class AppearanceManager: ObservableObject {
         self.chaliceDisplay = ChaliceDisplayMode(rawValue: savedDisplay) ?? .menuBarAndFloat
         // UserDefaults tracks the user's *intent* — SMAppService status can reset
         // between debug builds, so we re-register on every launch if user wants it.
-        let userWantsLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? true
+        let userWantsLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? false
         if userWantsLogin {
             try? SMAppService.mainApp.register()
         }
