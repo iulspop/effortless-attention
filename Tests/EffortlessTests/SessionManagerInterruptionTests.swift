@@ -4,10 +4,11 @@ import Foundation
 
 @MainActor
 private func makeManager() -> SessionManager {
-    let tempFile = FileManager.default.temporaryDirectory
+    let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)
-        .appendingPathComponent("state.json")
-    return SessionManager(skipRestore: true, stateFileURL: tempFile)
+    let tempFile = tempDir.appendingPathComponent("state.json")
+    let tLogger = TransitionLogger(directory: tempDir)
+    return SessionManager(skipRestore: true, stateFileURL: tempFile, transitionLogger: tLogger)
 }
 
 @Suite("SessionManager — Interruption (Escape Hatch)")

@@ -24,7 +24,8 @@ struct PersistenceTests {
         let stateFile = dir.appendingPathComponent("state.json")
 
         // Create manager, add contexts
-        let mgr1 = SessionManager(skipRestore: true, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr1 = SessionManager(skipRestore: true, stateFileURL: stateFile, transitionLogger: tLogger)
         mgr1.addContext(label: "Work", intention: "Write code", minutes: 25)
         mgr1.addContext(label: "Personal", intention: "Read book", minutes: 15)
         mgr1.addTodoToActiveContext(text: "Write tests", minutes: 10)
@@ -34,7 +35,7 @@ struct PersistenceTests {
         #expect(FileManager.default.fileExists(atPath: stateFile.path))
 
         // Create new manager that restores from same file
-        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
 
         #expect(mgr2.contexts.count == 2)
         #expect(mgr2.contexts[0].label == "Work")
@@ -49,11 +50,12 @@ struct PersistenceTests {
         defer { cleanup(dir) }
         let stateFile = dir.appendingPathComponent("state.json")
 
-        let mgr1 = SessionManager(skipRestore: true, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr1 = SessionManager(skipRestore: true, stateFileURL: stateFile, transitionLogger: tLogger)
         mgr1.addContext(label: "Work", intention: "Task", minutes: 25)
         mgr1.pause()
 
-        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
         #expect(mgr2.isPaused)
     }
 
@@ -63,7 +65,8 @@ struct PersistenceTests {
         defer { cleanup(dir) }
         let stateFile = dir.appendingPathComponent("state.json")
 
-        let mgr = SessionManager(skipRestore: true, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr = SessionManager(skipRestore: true, stateFileURL: stateFile, transitionLogger: tLogger)
         mgr.addContext(label: "Work", intention: "Task", minutes: 25)
         #expect(FileManager.default.fileExists(atPath: stateFile.path))
 
@@ -71,7 +74,7 @@ struct PersistenceTests {
         #expect(FileManager.default.fileExists(atPath: stateFile.path))
 
         // Restoring from the empty-state file should yield empty contexts
-        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let mgr2 = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
         #expect(mgr2.contexts.isEmpty)
     }
 
@@ -105,7 +108,8 @@ struct PersistenceTests {
         """
         try oldJSON.data(using: .utf8)!.write(to: stateFile)
 
-        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
         #expect(mgr.contexts.count == 1)
         #expect(mgr.contexts[0].label == "Legacy")
         #expect(!mgr.isPaused)
@@ -117,7 +121,8 @@ struct PersistenceTests {
         defer { cleanup(dir) }
         let stateFile = dir.appendingPathComponent("nonexistent.json")
 
-        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
         #expect(mgr.contexts.isEmpty)
         #expect(mgr.activeIndex == 0)
     }
@@ -130,7 +135,8 @@ struct PersistenceTests {
 
         try "not valid json {{{".data(using: .utf8)!.write(to: stateFile)
 
-        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
         #expect(mgr.contexts.isEmpty)
     }
 
@@ -164,7 +170,8 @@ struct PersistenceTests {
         """
         try json.data(using: .utf8)!.write(to: stateFile)
 
-        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile)
+        let tLogger = TransitionLogger(directory: dir)
+        let mgr = SessionManager(skipRestore: false, stateFileURL: stateFile, transitionLogger: tLogger)
         #expect(mgr.activeIndex == 0) // clamped to contexts.count - 1
     }
 }

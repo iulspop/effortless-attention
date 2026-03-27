@@ -1,0 +1,330 @@
+import SwiftUI
+
+// MARK: - Layout Model
+
+/// A node placed on a specific rail at a specific row in the timeline.
+struct TimelineNode: Identifiable {
+    let id: UUID
+    let event: TransitionEvent
+    let rail: Int          // which vertical rail this node sits on
+    let row: Int           // vertical position (0 = first event)
+}
+
+/// A connector between two nodes — vertical (same rail) or horizontal (cross-rail).
+struct TimelineConnector: Identifiable {
+    let id = UUID()
+    let fromRail: Int
+    let fromRow: Int
+    let toRail: Int
+    let toRow: Int
+    let type: TransitionEvent.TransitionType
+}
+
+/// Pre-processed layout derived from raw events.
+struct TimelineLayout {
+    let nodes: [TimelineNode]
+    let connectors: [TimelineConnector]
+    let railLabels: [String]   // label for each rail column
+    let railCount: Int
+
+    /// Build layout from a list of transition events.
+    static func build(from events: [TransitionEvent]) -> TimelineLayout {
+        guard !events.isEmpty else {
+            return TimelineLayout(nodes: [], connectors: [], railLabels: [], railCount: 0)
+        }
+
+        // Assign each context to a rail. Interruptions get ephemeral rails to the right.
+        var contextToRail: [UUID: Int] = [:]
+        var railLabels: [String] = []
+        var nextRail = 0
+
+        func railFor(_ contextId: UUID, label: String) -> Int {
+            if let r = contextToRail[contextId] { return r }
+            let r = nextRail
+            contextToRail[contextId] = r
+            railLabels.append(label)
+            nextRail += 1
+            return r
+        }
+
+        var nodes: [TimelineNode] = []
+        var connectors: [TimelineConnector] = []
+
+        for (row, event) in events.enumerated() {
+            let rail = railFor(event.to.contextId, label: event.to.contextLabel)
+            nodes.append(TimelineNode(id: event.id, event: event, rail: rail, row: row))
+
+            // Connect from previous node
+            if row > 0 {
+                let prevNode = nodes[row - 1]
+                connectors.append(TimelineConnector(
+                    fromRail: prevNode.rail,
+                    fromRow: prevNode.row,
+                    toRail: rail,
+                    toRow: row,
+                    type: event.type
+                ))
+            }
+        }
+
+        return TimelineLayout(
+            nodes: nodes,
+            connectors: connectors,
+            railLabels: railLabels,
+            railCount: nextRail
+        )
+    }
+}
+
+// MARK: - View
+
+struct MirrorView: View {
+    let events: [TransitionEvent]
+    var onDismiss: () -> Void = {}
+
+    @State private var currentTime = Date()
+    @State private var keyMonitor: Any?
+    private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
+    private var layout: TimelineLayout {
+        TimelineLayout.build(from: events)
+    }
+
+    // Layout constants
+    private let railSpacing: CGFloat = 120
+    private let rowHeight: CGFloat = 64
+    private let nodeRadius: CGFloat = 5
+    private let timeColumnWidth: CGFloat = 50
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: NSColor.windowBackgroundColor)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                Text(currentTime, format: .dateTime.hour().minute())
+                    .font(.system(size: 15, weight: .light, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 80)
+
+                Text("Mirror")
+                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 8)
+
+                if events.isEmpty {
+                    Spacer()
+                    emptyState
+                    Spacer()
+                } else {
+                    graphView
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onReceive(timer) { currentTime = $0 }
+        .onAppear { installKeyMonitor() }
+        .onDisappear { removeKeyMonitor() }
+    }
+
+    // MARK: - Key Monitor
+
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 { // Escape
+                onDismiss()
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Text("No transitions yet today.")
+                .font(.system(size: 18, weight: .regular, design: .serif))
+                .foregroundColor(.primary.opacity(0.6))
+            Text("Declare an intention to begin.")
+                .font(.system(size: 14, weight: .regular, design: .serif))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - Graph
+
+    private var graphView: some View {
+        let lay = layout
+
+        return ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                ZStack(alignment: .topLeading) {
+                    // Rail labels at top
+                    railHeaders(lay)
+
+                    // Connectors (draw behind nodes)
+                    ForEach(lay.connectors) { conn in
+                        connectorPath(conn, layout: lay)
+                    }
+
+                    // Nodes
+                    ForEach(lay.nodes) { node in
+                        nodeView(node, layout: lay)
+                    }
+
+                    // Now marker
+                    nowMarker(layout: lay)
+                        .id("now")
+                }
+                .frame(
+                    width: graphWidth(lay),
+                    height: graphHeight(lay)
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            }
+            .onAppear {
+                proxy.scrollTo("now", anchor: .bottom)
+            }
+        }
+    }
+
+    // MARK: - Rail Headers
+
+    private func railHeaders(_ lay: TimelineLayout) -> some View {
+        ForEach(0..<lay.railCount, id: \.self) { rail in
+            let label = lay.railLabels[rail]
+            let isInterruption = label == "⚡ Interruption"
+
+            Text(isInterruption ? "⚡" : label)
+                .font(.system(size: 11, weight: .regular, design: .serif))
+                .foregroundColor(isInterruption ? .orange.opacity(0.6) : .secondary.opacity(0.4))
+                .position(x: railX(rail, layout: lay), y: 16)
+        }
+    }
+
+    // MARK: - Node
+
+    private func nodeView(_ node: TimelineNode, layout lay: TimelineLayout) -> some View {
+        let x = railX(node.rail, layout: lay)
+        let y = nodeY(node.row)
+        let isInterruption = node.event.type == .interruption ||
+                             node.event.to.contextLabel == "⚡ Interruption"
+
+        return VStack(spacing: 0) {
+            // The node dot
+            Circle()
+                .fill(isInterruption ? Color.orange.opacity(0.7) : Color.primary.opacity(0.35))
+                .frame(width: nodeRadius * 2, height: nodeRadius * 2)
+
+            // Label below node
+            VStack(spacing: 1) {
+                Text(node.event.to.todoText)
+                    .font(.system(size: 12, weight: .regular, design: .serif))
+                    .foregroundColor(.primary.opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                Text(timeLabel(node.event.timestamp))
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.4))
+            }
+            .frame(width: railSpacing - 16)
+            .padding(.top, 4)
+        }
+        .position(x: x, y: y)
+    }
+
+    // MARK: - Connectors
+
+    private func connectorPath(_ conn: TimelineConnector, layout lay: TimelineLayout) -> some View {
+        let fromX = railX(conn.fromRail, layout: lay)
+        let fromY = nodeY(conn.fromRow) + nodeRadius
+        let toX = railX(conn.toRail, layout: lay)
+        let toY = nodeY(conn.toRow) - nodeRadius
+
+        let isInterruption = conn.type == .interruption
+        let color = isInterruption ? Color.orange.opacity(0.4) : Color.primary.opacity(0.1)
+
+        return Path { path in
+            path.move(to: CGPoint(x: fromX, y: fromY))
+            if conn.fromRail == conn.toRail {
+                // Vertical — same rail
+                path.addLine(to: CGPoint(x: toX, y: toY))
+            } else {
+                // Cross-rail — curve from one rail to another
+                let midY = (fromY + toY) / 2
+                path.addCurve(
+                    to: CGPoint(x: toX, y: toY),
+                    control1: CGPoint(x: fromX, y: midY),
+                    control2: CGPoint(x: toX, y: midY)
+                )
+            }
+        }
+        .stroke(color, style: StrokeStyle(
+            lineWidth: isInterruption ? 1.5 : 1,
+            dash: conn.type == .contextSwitch ? [4, 4] : []
+        ))
+    }
+
+    // MARK: - Now Marker
+
+    private func nowMarker(layout lay: TimelineLayout) -> some View {
+        let y = nodeY(lay.nodes.count)
+        let lastRail = lay.nodes.last?.rail ?? 0
+        let x = railX(lastRail, layout: lay)
+
+        return VStack(spacing: 2) {
+            Circle()
+                .stroke(Color.primary.opacity(0.25), lineWidth: 1.5)
+                .frame(width: nodeRadius * 2, height: nodeRadius * 2)
+            Text("now")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.35))
+        }
+        .position(x: x, y: y)
+    }
+
+    // MARK: - Geometry Helpers
+
+    private func railX(_ rail: Int, layout lay: TimelineLayout) -> CGFloat {
+        let totalWidth = CGFloat(max(lay.railCount - 1, 0)) * railSpacing
+        let startX = -totalWidth / 2
+        return graphWidth(lay) / 2 + startX + CGFloat(rail) * railSpacing
+    }
+
+    private func nodeY(_ row: Int) -> CGFloat {
+        // Row 0 at top (below header), increasing downward
+        // But we want past at bottom, present at top → invert later in scroll
+        // Actually: events are chronological, row 0 = earliest.
+        // ScrollView scrolls to "now" at bottom. So row 0 = top of content = earliest = past.
+        // That means past is at top of scroll content, present at bottom.
+        // User scrolls down to see present. "now" anchor scrolls to bottom.
+        return CGFloat(row) * rowHeight + 48 // 48 offset for rail headers
+    }
+
+    private func graphWidth(_ lay: TimelineLayout) -> CGFloat {
+        max(CGFloat(lay.railCount) * railSpacing + 80, 400)
+    }
+
+    private func graphHeight(_ lay: TimelineLayout) -> CGFloat {
+        CGFloat(lay.nodes.count + 1) * rowHeight + 96
+    }
+
+    // MARK: - Helpers
+
+    private func timeLabel(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
+    }
+}

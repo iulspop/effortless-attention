@@ -46,17 +46,20 @@ class SessionManager: ObservableObject {
 
     private var timer: Timer?
     private let logger: SessionLogger
+    private let transitionLogger: TransitionLogger
     private var lastTickDate: Date?
     var stateFileURL: URL
 
     init() {
         self.logger = SessionLogger()
+        self.transitionLogger = TransitionLogger()
         self.stateFileURL = Self.defaultStateFile
         restoreState()
     }
 
-    init(skipRestore: Bool, stateFileURL: URL? = nil, logger: SessionLogger? = nil) {
+    init(skipRestore: Bool, stateFileURL: URL? = nil, logger: SessionLogger? = nil, transitionLogger: TransitionLogger? = nil) {
         self.logger = logger ?? SessionLogger()
+        self.transitionLogger = transitionLogger ?? TransitionLogger()
         self.stateFileURL = stateFileURL ?? Self.defaultStateFile
         if !skipRestore {
             restoreState()
@@ -134,9 +137,13 @@ class SessionManager: ObservableObject {
         }
         guard activeIndex >= 0, activeIndex < contexts.count,
               let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
+        let fromSnap = currentSnapshot()
         logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .expired)
         contexts[activeIndex].todos[todoIndex].completed = true
         advanceAfterTodoFinished()
+        if let from = fromSnap, let to = currentSnapshot() {
+            logTransition(.completion, from: from, to: to)
+        }
         notifyChange()
     }
 
@@ -145,6 +152,7 @@ class SessionManager: ObservableObject {
     func addContext(label: String, intention: String, minutes: Int) {
         let todo = TodoItem(text: intention, timeboxMinutes: minutes)
         let ctx = CognitiveContext(label: label, todos: [todo])
+        let wasEmpty = contexts.isEmpty
 
         if contexts.isEmpty {
             contexts.append(ctx)
@@ -152,6 +160,10 @@ class SessionManager: ObservableObject {
             startTimer()
         } else {
             contexts.append(ctx)
+        }
+
+        if wasEmpty, let snap = currentSnapshot() {
+            logTransition(.start, from: nil, to: snap)
         }
         notifyChange()
     }
@@ -185,11 +197,17 @@ class SessionManager: ObservableObject {
         guard index != activeIndex else { return }
         guard !isInInterruption else { return } // Can't context-switch during interruption
 
+        let fromSnap = currentSnapshot()
+
         // Pause current — snapshot elapsed time
         accumulateElapsed(at: activeIndex)
 
         activeIndex = index
         lastTickDate = Date()
+
+        if let from = fromSnap, let to = snapshot(at: activeIndex) {
+            logTransition(.contextSwitch, from: from, to: to)
+        }
 
         // Ensure timer is running if new context has active intention
         if contexts[activeIndex].hasActiveIntention && timer == nil {
@@ -218,10 +236,17 @@ class SessionManager: ObservableObject {
         guard activeIndex >= 0, activeIndex < contexts.count else { return }
         guard let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
 
+        let fromSnap = currentSnapshot()
+
         accumulateElapsed(at: activeIndex)
         logTodo(contexts[activeIndex].todos[todoIndex], context: contexts[activeIndex], outcome: .completed)
         contexts[activeIndex].todos[todoIndex].completed = true
         advanceAfterTodoFinished()
+
+        // Log completion transition — "to" is whatever we advanced to
+        if let from = fromSnap, let to = currentSnapshot() {
+            logTransition(.completion, from: from, to: to)
+        }
         notifyChange()
     }
 
@@ -262,10 +287,17 @@ class SessionManager: ObservableObject {
     /// Called after the user declares what they're interrupting for.
     /// Creates an ephemeral context with a single todo and starts its timer.
     func beginInterruption(intention: String, minutes: Int) {
+        // Snapshot the intention being interrupted (before switching)
+        let fromSnap = currentSnapshot()
+
         let todo = TodoItem(text: intention, timeboxMinutes: minutes)
         let ctx = CognitiveContext(label: "⚡ Interruption", todos: [todo])
         contexts.append(ctx)
         activeIndex = contexts.count - 1
+
+        if let from = fromSnap, let to = currentSnapshot() {
+            logTransition(.interruption, from: from, to: to)
+        }
         startTimer()
         notifyChange()
     }
@@ -273,6 +305,8 @@ class SessionManager: ObservableObject {
     /// Completes/discards the current interruption and pops back to the previous context.
     func completeInterruption() {
         guard !interruptionStack.isEmpty else { return }
+
+        let fromSnap = currentSnapshot()
 
         // Log the interruption todo
         if activeIndex >= 0, activeIndex < contexts.count,
@@ -292,6 +326,11 @@ class SessionManager: ObservableObject {
         // Adjust the saved contextIndex if contexts shifted
         let restoredIndex = min(frame.contextIndex, contexts.count - 1)
         activeIndex = max(0, restoredIndex)
+
+        // Log the return as a completion (popping back from escape hatch)
+        if let from = fromSnap, let to = currentSnapshot() {
+            logTransition(.completion, from: from, to: to)
+        }
 
         // Resume the original todo's timer
         if hasActiveIntention {
@@ -469,6 +508,41 @@ class SessionManager: ObservableObject {
     }
 
     // MARK: - Logging
+
+    // MARK: - Transition Logging
+
+    /// Snapshot the current active intention for transition events.
+    private func currentSnapshot() -> CognitiveSnapshot? {
+        guard activeIndex >= 0, activeIndex < contexts.count,
+              let todo = contexts[activeIndex].currentTodo else { return nil }
+        return CognitiveSnapshot(
+            contextId: contexts[activeIndex].id,
+            contextLabel: contexts[activeIndex].label,
+            todoId: todo.id,
+            todoText: todo.text
+        )
+    }
+
+    private func snapshot(at index: Int) -> CognitiveSnapshot? {
+        guard index >= 0, index < contexts.count,
+              let todo = contexts[index].currentTodo else { return nil }
+        return CognitiveSnapshot(
+            contextId: contexts[index].id,
+            contextLabel: contexts[index].label,
+            todoId: todo.id,
+            todoText: todo.text
+        )
+    }
+
+    private func logTransition(_ type: TransitionEvent.TransitionType, from: CognitiveSnapshot?, to: CognitiveSnapshot) {
+        let event = TransitionEvent(
+            type: type,
+            from: from,
+            to: to,
+            interruptionDepth: interruptionStack.count
+        )
+        transitionLogger.log(event)
+    }
 
     private func logTodo(_ todo: TodoItem, context ctx: CognitiveContext, outcome: Session.Outcome) {
         let session = Session(

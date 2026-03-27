@@ -10,8 +10,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var resumeWindow: NSWindow?
     private var expiryWindow: NSWindow?
     private var interruptionWindow: NSWindow?
+    private var mirrorWindow: NSWindow?
     private var idleTimer: Timer?
     private let sessionManager = SessionManager()
+    private let transitionLogger = TransitionLogger()
     private let appearanceManager = AppearanceManager.shared
     private let hotkeyManager = HotkeyManager.shared
 
@@ -141,6 +143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Mirror…", action: #selector(showMirror), keyEquivalent: "m"))
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit Effortless", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -192,6 +195,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager.setHandler(for: .cyclePrev) { [weak self] in
             self?.sessionManager.cyclePrev()
         }
+        hotkeyManager.setHandler(for: .openMirror) { [weak self] in
+            self?.toggleMirror()
+        }
         hotkeyManager.onContextJump = { [weak self] index in
             self?.sessionManager.switchTo(index: index)
         }
@@ -215,8 +221,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAltar() {
         guard altarWindow == nil else { return }
-
         guard let screen = NSScreen.main else { return }
+
+        // Dismiss mirror if open — only one fullscreen surface at a time
+        if mirrorWindow != nil { dismissMirror() }
 
         let altarView = AltarView(sessionManager: sessionManager, onDismiss: { [weak self] in
             self?.dismissAltar()
@@ -372,6 +380,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         settingsWindow = window
+    }
+
+    // MARK: - Mirror
+
+    private func toggleMirror() {
+        if mirrorWindow != nil {
+            dismissMirror()
+        } else {
+            showMirror()
+        }
+    }
+
+    @objc private func showMirror() {
+        if mirrorWindow != nil { return }
+        guard let screen = NSScreen.main else { return }
+
+        // Dismiss altar if open — only one fullscreen surface at a time
+        if altarWindow != nil { dismissAltar() }
+
+        let events = transitionLogger.loadToday()
+        let mirrorView = MirrorView(events: events) { [weak self] in
+            self?.dismissMirror()
+        }
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSHostingView(rootView: mirrorView)
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.ignoresMouseEvents = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeFirstResponder(window.contentView)
+
+        NSApp.presentationOptions = [
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication,
+            .disableAppleMenu,
+            .disableMenuBarTransparency,
+            .hideMenuBar,
+            .hideDock
+        ]
+
+        mirrorWindow = window
+        hideChalice()
+    }
+
+    private func dismissMirror() {
+        NSApp.presentationOptions = []
+        mirrorWindow?.orderOut(nil)
+        mirrorWindow?.contentView = nil
+        mirrorWindow = nil
+
+        if appearanceManager.chaliceDisplay == .menuBarAndFloat,
+           sessionManager.hasActiveIntention, !sessionManager.isPaused {
+            showChalice()
+        }
     }
 
     // MARK: - Pause / Resume

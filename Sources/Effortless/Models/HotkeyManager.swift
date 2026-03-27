@@ -58,6 +58,7 @@ enum HotkeyAction: String, CaseIterable {
     case togglePause
     case cycleNext
     case cyclePrev
+    case openMirror
 
     var displayName: String {
         switch self {
@@ -67,6 +68,7 @@ enum HotkeyAction: String, CaseIterable {
         case .togglePause: "Pause / Resume"
         case .cycleNext: "Next Context"
         case .cyclePrev: "Previous Context"
+        case .openMirror: "Open Mirror"
         }
     }
 
@@ -171,6 +173,8 @@ class HotkeyManager: ObservableObject {
             return HotkeyBinding(keyCode: 124, modifiers: mods) // ⌃⌥⌘→
         case .cyclePrev:
             return HotkeyBinding(keyCode: 123, modifiers: mods) // ⌃⌥⌘←
+        case .openMirror:
+            return HotkeyBinding(keyCode: 46, modifiers: mods)  // ⌃⌥⌘M
         }
     }
 }
