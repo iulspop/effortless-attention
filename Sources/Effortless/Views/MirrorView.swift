@@ -242,7 +242,7 @@ struct MirrorView: View {
                 .padding(.vertical, 40)
             }
             .onAppear {
-                proxy.scrollTo("now", anchor: .bottom)
+                proxy.scrollTo("now", anchor: .top)
             }
         }
     }
@@ -265,7 +265,7 @@ struct MirrorView: View {
 
     private func nodeView(_ node: TimelineNode, layout lay: TimelineLayout) -> some View {
         let x = railX(node.rail, layout: lay)
-        let y = nodeY(node.row)
+        let y = nodeY(node.row, totalRows: lay.nodes.count)
         let isInterruption = node.event.type == .interruption ||
                              node.event.to.contextLabel == "⚡ Interruption"
 
@@ -297,9 +297,9 @@ struct MirrorView: View {
 
     private func connectorPath(_ conn: TimelineConnector, layout lay: TimelineLayout) -> some View {
         let fromX = railX(conn.fromRail, layout: lay)
-        let fromY = nodeY(conn.fromRow) + nodeRadius
+        let fromY = nodeY(conn.fromRow, totalRows: lay.nodes.count) - nodeRadius
         let toX = railX(conn.toRail, layout: lay)
-        let toY = nodeY(conn.toRow) - nodeRadius
+        let toY = nodeY(conn.toRow, totalRows: lay.nodes.count) + nodeRadius
 
         let isInterruption = conn.type == .interruption
         let color = isInterruption ? Color.orange.opacity(0.4) : Color.primary.opacity(0.1)
@@ -328,7 +328,7 @@ struct MirrorView: View {
     // MARK: - Now Marker
 
     private func nowMarker(layout lay: TimelineLayout) -> some View {
-        let y = nodeY(lay.nodes.count)
+        let y = nodeY(lay.nodes.count, totalRows: lay.nodes.count)
         let lastRail = lay.nodes.last?.rail ?? 0
         let x = railX(lastRail, layout: lay)
 
@@ -351,14 +351,11 @@ struct MirrorView: View {
         return graphWidth(lay) / 2 + startX + CGFloat(rail) * railSpacing
     }
 
-    private func nodeY(_ row: Int) -> CGFloat {
-        // Row 0 at top (below header), increasing downward
-        // But we want past at bottom, present at top → invert later in scroll
-        // Actually: events are chronological, row 0 = earliest.
-        // ScrollView scrolls to "now" at bottom. So row 0 = top of content = earliest = past.
-        // That means past is at top of scroll content, present at bottom.
-        // User scrolls down to see present. "now" anchor scrolls to bottom.
-        return CGFloat(row) * rowHeight + 48 * zoomLevel // offset for rail headers
+    private func nodeY(_ row: Int, totalRows: Int) -> CGFloat {
+        // Inverted: row 0 (earliest) at bottom, last row (now) at top.
+        // "now" marker uses row = totalRows (one past last node).
+        let invertedRow = totalRows - row
+        return CGFloat(invertedRow) * rowHeight + 48 * zoomLevel // offset for rail headers
     }
 
     private func graphWidth(_ lay: TimelineLayout) -> CGFloat {
