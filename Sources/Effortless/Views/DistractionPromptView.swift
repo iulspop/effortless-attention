@@ -24,6 +24,7 @@ struct DistractionPromptView: View {
                         onSubmit(trimmed)
                     }
                 )
+                .padding(.horizontal, 12)
                 .frame(width: 400, height: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 8)

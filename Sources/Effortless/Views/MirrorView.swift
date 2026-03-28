@@ -22,6 +22,7 @@ struct TimelineConnector: Identifiable {
     let type: TransitionEvent.TransitionType
     let duration: TimeInterval  // seconds between from and to events
     let timeboxMinutes: Int?    // intended timebox of the from node's todo
+    let fromTimestamp: Date     // when the from-node's intention started
 }
 
 /// Pre-processed layout derived from raw events.
@@ -73,7 +74,8 @@ struct TimelineLayout {
                     toRow: row,
                     type: event.type,
                     duration: elapsed,
-                    timeboxMinutes: prevNode.event.to.timeboxMinutes
+                    timeboxMinutes: prevNode.event.to.timeboxMinutes,
+                    fromTimestamp: prevNode.event.timestamp
                 ))
                 // Mark the from-node as completed if this transition is a completion
                 if event.type == .completion {
@@ -121,7 +123,7 @@ struct MirrorView: View {
     }
 
     // Base layout constants (scaled by zoomLevel)
-    private var railSpacing: CGFloat { 120 * zoomLevel }
+    private var railSpacing: CGFloat { 140 * zoomLevel }
     private var rowHeight: CGFloat { 80 * zoomLevel }
     private var nodeRadius: CGFloat { 5 * zoomLevel }
     private let timeColumnWidth: CGFloat = 50
@@ -241,37 +243,46 @@ struct MirrorView: View {
         let gh = graphHeight(lay)
 
         return ScrollViewReader { proxy in
-            ScrollView([.vertical, .horizontal], showsIndicators: false) {
-                ZStack(alignment: .topLeading) {
-                    // Rail labels at top
-                    railHeaders(lay)
+            ScrollView(.vertical, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 0) {
+                    // Time scale pinned to left edge (doesn't scroll horizontally)
+                    timeScale(lay)
+                        .frame(width: 70, height: gh + 80)
 
-                    // Connectors (draw behind nodes)
-                    ForEach(lay.connectors) { conn in
-                        connectorPath(conn, layout: lay)
-                    }
+                    // Graph scrolls horizontally
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        ZStack(alignment: .topLeading) {
+                            // Rail labels at top
+                            railHeaders(lay)
 
-                    // Now marker
-                    nowMarker(layout: lay)
-                        .id("now")
-                }
-                .frame(width: gw, height: gh)
-                // Nodes as individual overlays — each gets its own coordinate space for hover/tooltip
-                .overlay {
-                    ForEach(lay.nodes) { node in
-                        NodeCardView(
-                            node: node,
-                            zoomLevel: zoomLevel,
-                            nodeRadius: nodeRadius,
-                            railSpacing: railSpacing
-                        )
-                        .fixedSize()
-                        .position(
-                            x: railX(node.rail, layout: lay),
-                            y: nodeY(node.row, totalRows: lay.nodes.count)
-                        )
+                            // Connectors (draw behind nodes)
+                            ForEach(lay.connectors) { conn in
+                                connectorPath(conn, layout: lay)
+                            }
+
+                            // Now marker
+                            nowMarker(layout: lay)
+                                .id("now")
+                        }
+                        .frame(width: gw, height: gh)
+                        // Nodes as individual overlays
+                        .overlay {
+                            ForEach(lay.nodes) { node in
+                                NodeCardView(
+                                    node: node,
+                                    zoomLevel: zoomLevel,
+                                    nodeRadius: nodeRadius,
+                                    railSpacing: railSpacing
+                                )
+                                .fixedSize()
+                                .position(
+                                    x: railX(node.rail, layout: lay),
+                                    y: nodeY(node.row, totalRows: lay.nodes.count)
+                                )
+                            }
+                            .frame(width: gw, height: gh)
+                        }
                     }
-                    .frame(width: gw, height: gh)
                 }
                 .padding(.vertical, 40)
             }
@@ -280,6 +291,107 @@ struct MirrorView: View {
             }
         }
     }
+
+    // MARK: - Time Scale
+
+    private func timeScale(_ lay: TimelineLayout) -> some View {
+        let nodes = lay.nodes
+        guard let first = nodes.first, let last = nodes.last else {
+            return AnyView(EmptyView())
+        }
+
+        let firstTime = first.event.timestamp
+        let now = Date()
+        let totalRows = nodes.count
+
+        let cal = Calendar.current
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+
+        struct TimeMark: Identifiable {
+            let id = UUID()
+            let label: String
+            let y: CGFloat
+            let isHour: Bool
+        }
+
+        var marks: [TimeMark] = []
+
+        // Always show first node time
+        marks.append(TimeMark(
+            label: fmt.string(from: firstTime),
+            y: nodeY(first.row, totalRows: totalRows),
+            isHour: false
+        ))
+
+        // Add 30-min interval marks between first event and now
+        let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: firstTime)
+        let minute = comps.minute ?? 0
+        let nextHalf = minute < 30 ? 30 : 60
+        var markDate = cal.date(bySettingHour: comps.hour! + (nextHalf == 60 ? 1 : 0),
+                                 minute: nextHalf == 60 ? 0 : 30,
+                                 second: 0, of: firstTime)!
+
+        while markDate < now {
+            let y = interpolatedY(for: markDate, nodes: nodes, now: now)
+            let isHour = cal.component(.minute, from: markDate) == 0
+            marks.append(TimeMark(label: fmt.string(from: markDate), y: y, isHour: isHour))
+            markDate = cal.date(byAdding: .minute, value: 30, to: markDate)!
+        }
+
+        // Always show "now" time
+        let nowY = nodeY(totalRows, totalRows: totalRows)
+        marks.append(TimeMark(
+            label: fmt.string(from: now),
+            y: nowY,
+            isHour: false
+        ))
+
+        return AnyView(
+            ZStack {
+                ForEach(marks) { mark in
+                    Text(mark.label)
+                        .font(.system(size: (mark.isHour ? 20 : 16) * zoomLevel, weight: mark.isHour ? .light : .regular, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(mark.isHour ? 0.4 : 0.35))
+                        .position(x: 35, y: mark.y)
+                }
+            }
+        )
+    }
+
+    /// Interpolate a Y position for a given date, extending past the last node toward "now".
+    private func interpolatedY(for date: Date, nodes: [TimelineNode], now: Date) -> CGFloat {
+        let total = nodes.count
+        // Before first node
+        if date <= nodes.first!.event.timestamp {
+            return nodeY(nodes.first!.row, totalRows: total)
+        }
+        // After last node — interpolate between last node and "now" marker
+        if date >= nodes.last!.event.timestamp {
+            let lastY = nodeY(nodes.last!.row, totalRows: total)
+            let nowY = nodeY(total, totalRows: total)
+            let span = now.timeIntervalSince(nodes.last!.event.timestamp)
+            guard span > 0 else { return lastY }
+            let frac = date.timeIntervalSince(nodes.last!.event.timestamp) / span
+            return lastY + CGFloat(frac) * (nowY - lastY)
+        }
+        // Between two nodes
+        for i in 0..<(nodes.count - 1) {
+            let a = nodes[i]
+            let b = nodes[i + 1]
+            if date >= a.event.timestamp && date <= b.event.timestamp {
+                let span = b.event.timestamp.timeIntervalSince(a.event.timestamp)
+                guard span > 0 else { return nodeY(a.row, totalRows: total) }
+                let frac = date.timeIntervalSince(a.event.timestamp) / span
+                let yA = nodeY(a.row, totalRows: total)
+                let yB = nodeY(b.row, totalRows: total)
+                return yA + CGFloat(frac) * (yB - yA)
+            }
+        }
+        return nodeY(nodes.last!.row, totalRows: total)
+    }
+
+
 
     // MARK: - Rail Headers
 
@@ -309,7 +421,6 @@ struct MirrorView: View {
                            isInterruption ? .orange.opacity(0.4) :
                            .primary.opacity(0.1)
 
-        let midX = (fromX + toX) / 2
         let midY = (fromY + toY) / 2
 
         return ZStack {
@@ -330,17 +441,17 @@ struct MirrorView: View {
                 dash: conn.type == .contextSwitch ? [4 * zoomLevel, 4 * zoomLevel] : []
             ))
 
-            VStack(spacing: 1) {
-                if let tb = conn.timeboxMinutes {
-                    Text("\(tb)m intended")
-                        .font(.system(size: 8 * zoomLevel, weight: .light, design: .monospaced))
-                        .foregroundColor(.secondary.opacity(0.35))
-                }
-                Text(durationLabel(conn.duration))
-                    .font(.system(size: 9 * zoomLevel, weight: .regular, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.5))
-            }
-            .position(x: conn.fromRail == conn.toRail ? midX + 30 * zoomLevel : midX, y: midY)
+            // Start time on left of line
+            Text(timeLabel(conn.fromTimestamp))
+                .font(.system(size: 9 * zoomLevel, weight: .regular, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.4))
+                .position(x: min(fromX, toX) - 36 * zoomLevel, y: midY)
+
+            // Elapsed duration on right of line
+            Text(durationLabel(conn.duration))
+                .font(.system(size: 9 * zoomLevel, weight: .regular, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.5))
+                .position(x: max(fromX, toX) + 36 * zoomLevel, y: midY)
         }
     }
 
@@ -437,19 +548,23 @@ private struct NodeCardView: View {
                 .fill(accentColor.opacity(0.7))
                 .frame(width: nodeRadius * 2, height: nodeRadius * 2)
 
-            VStack(spacing: 1) {
-                Text(node.event.to.todoText)
-                    .font(.system(size: 12 * zoomLevel, weight: .regular, design: .serif))
-                    .foregroundColor(accentColor.opacity(0.8))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+            Text(node.event.to.todoText)
+                .font(.system(size: 12 * zoomLevel, weight: .regular, design: .serif))
+                .foregroundColor(accentColor.opacity(0.8))
+                .lineLimit(4)
+                .multilineTextAlignment(.center)
+                .frame(width: railSpacing - 16)
+                .padding(.top, 4 * zoomLevel)
 
-                Text(timeLabel(node.event.timestamp))
-                    .font(.system(size: 10 * zoomLevel, weight: .regular, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.4))
+            if let tb = node.event.to.timeboxMinutes {
+                HStack {
+                    Spacer()
+                    Text("\(tb)m")
+                        .font(.system(size: 9 * zoomLevel, weight: .light, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.35))
+                }
+                .frame(width: railSpacing - 16)
             }
-            .frame(width: railSpacing - 16)
-            .padding(.top, 4 * zoomLevel)
         }
         .padding(.horizontal, 6 * zoomLevel)
         .padding(.vertical, 4 * zoomLevel)
@@ -480,11 +595,5 @@ private struct NodeCardView: View {
                 .allowsHitTesting(false)
             }
         }
-    }
-
-    private func timeLabel(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: date)
     }
 }
