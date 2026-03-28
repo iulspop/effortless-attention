@@ -98,15 +98,11 @@ struct OllamaClient: Sendable {
     private func buildMessages(_ query: DistractionQuery) -> [[String: String]] {
         let windowDesc = query.windowTitle.isEmpty ? query.activeApp : query.windowTitle
 
-        var systemPrompt = "Classify the user's screen as DISTRACTED or FOCUSED relative to their task. Reply with ONLY one word. Be strict: the screen must be DIRECTLY helping the task to be FOCUSED."
-
-        if !query.allowedItems.isEmpty {
-            systemPrompt += " Exception — the user said these ARE on-task: \(query.allowedItems.joined(separator: ", "))."
-        }
+        let systemPrompt = "Classify the user's screen as DISTRACTED or FOCUSED relative to their task. Reply with ONLY one word. Be strict: the screen must be DIRECTLY helping the task to be FOCUSED. However, if the user has previously marked something as FOCUSED, always trust that — the user knows best."
 
         var messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt],
-            // Few-shot examples from different domains to avoid leaking the actual task
+            // Few-shot examples from different domains
             ["role": "user", "content": "Task: \"Write Q3 report\" Screen: \"YouTube - Google Chrome\""],
             ["role": "assistant", "content": "DISTRACTED"],
             ["role": "user", "content": "Task: \"Write Q3 report\" Screen: \"Q3 Report.docx - Word\""],
@@ -115,9 +111,16 @@ struct OllamaClient: Sendable {
             ["role": "assistant", "content": "DISTRACTED"],
             ["role": "user", "content": "Task: \"Study on duolingo.com\" Screen: \"Duolingo - Learn Spanish - Google Chrome\""],
             ["role": "assistant", "content": "FOCUSED"],
-            // Actual query
-            ["role": "user", "content": "Task: \"\(query.intention)\" Screen: \"\(windowDesc)\""],
         ]
+
+        // Inject allowlisted items as few-shot FOCUSED examples so the model learns them
+        for item in query.allowedItems {
+            messages.append(["role": "user", "content": "Task: \"\(query.intention)\" Screen: \"\(item)\""])
+            messages.append(["role": "assistant", "content": "FOCUSED"])
+        }
+
+        // Actual query
+        messages.append(["role": "user", "content": "Task: \"\(query.intention)\" Screen: \"\(windowDesc)\""])
 
         return messages
     }
