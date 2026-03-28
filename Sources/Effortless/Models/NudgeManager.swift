@@ -30,6 +30,9 @@ class NudgeManager: ObservableObject {
     /// Provides current intention for LLM queries.
     var intentionProvider: (() -> (intention: String, contextLabel: String, contextId: UUID)?)?
 
+    /// Track last-known intention so we can detect when it changes.
+    private var lastKnownIntention: String?
+
     private var escalationTimer: Timer?
     private var flashTimer: Timer?
     private var graceTimer: Timer?
@@ -72,6 +75,7 @@ class NudgeManager: ObservableObject {
     }
 
     private func beginMonitoring() {
+        lastKnownIntention = intentionProvider?()?.intention
         attentionMonitor.onChange = { [weak self] ctx in
             self?.handleContextChange(ctx)
         }
@@ -85,6 +89,25 @@ class NudgeManager: ObservableObject {
         pendingAssessment = nil
         transitionTo(.idle)
         isRunning = false
+    }
+
+    /// Called when session state changes. Resets nudge state if the intention changed.
+    func intentionDidChange() {
+        guard isRunning else { return }
+        let currentIntention = intentionProvider?()?.intention
+        if currentIntention != lastKnownIntention {
+            lastKnownIntention = currentIntention
+            // Intention changed — old nudge/assessment is stale
+            pendingAssessment?.cancel()
+            pendingAssessment = nil
+            lastDistractingContext = nil
+            cancelAllTimers()
+            if state != .idle {
+                transitionTo(.idle)
+            }
+            // Re-assess current app against new intention
+            checkCurrentContext()
+        }
     }
 
     // MARK: - User Actions

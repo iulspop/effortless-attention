@@ -156,7 +156,7 @@ class SessionManager: ObservableObject {
         if contexts.isEmpty {
             contexts.append(ctx)
             activeIndex = 0
-            startTimer()
+            if !isPaused { startTimer() }
         } else {
             contexts.append(ctx)
         }
@@ -169,7 +169,7 @@ class SessionManager: ObservableObject {
         contexts[activeIndex].todos.append(todo)
 
         // If timer wasn't running (no active todo before), start it
-        if timer == nil && contexts[activeIndex].hasActiveIntention {
+        if !isPaused && timer == nil && contexts[activeIndex].hasActiveIntention {
             startTimer()
         }
         notifyChange()
@@ -181,7 +181,7 @@ class SessionManager: ObservableObject {
         contexts[contextIndex].todos.append(todo)
 
         // Start timer if this is the active context and it now has an intention
-        if contextIndex == activeIndex && timer == nil && contexts[contextIndex].hasActiveIntention {
+        if !isPaused && contextIndex == activeIndex && timer == nil && contexts[contextIndex].hasActiveIntention {
             startTimer()
         }
         notifyChange()
@@ -199,7 +199,7 @@ class SessionManager: ObservableObject {
         lastTickDate = Date()
 
         // Ensure timer is running if new context has active intention
-        if contexts[activeIndex].hasActiveIntention && timer == nil {
+        if !isPaused && contexts[activeIndex].hasActiveIntention && timer == nil {
             startTimer()
         }
         notifyChange()
@@ -260,7 +260,7 @@ class SessionManager: ObservableObject {
     func cancelInterrupt() {
         guard !interruptionStack.isEmpty else { return }
         interruptionStack.removeLast()
-        if hasActiveIntention {
+        if !isPaused && hasActiveIntention {
             startTimer()
         }
         notifyChange()
@@ -273,7 +273,7 @@ class SessionManager: ObservableObject {
         let ctx = CognitiveContext(label: "⚡ Interruption", todos: [todo])
         contexts.append(ctx)
         activeIndex = contexts.count - 1
-        startTimer()
+        if !isPaused { startTimer() }
         notifyChange()
     }
 
@@ -301,7 +301,7 @@ class SessionManager: ObservableObject {
         activeIndex = max(0, restoredIndex)
 
         // Resume the original todo's timer
-        if hasActiveIntention {
+        if !isPaused && hasActiveIntention {
             startTimer()
         }
         notifyChange()
@@ -325,7 +325,7 @@ class SessionManager: ObservableObject {
             if contexts[idx].hasActiveIntention {
                 activeIndex = idx
                 lastTickDate = Date()
-                if timer == nil { startTimer() }
+                if !isPaused && timer == nil { startTimer() }
                 return
             }
         }

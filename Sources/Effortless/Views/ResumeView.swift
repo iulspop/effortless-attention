@@ -68,14 +68,7 @@ struct ResumeView: View {
 
                             Spacer()
 
-                            if let todo = ctx.currentTodo {
-                                let remaining = Int(todo.remainingSeconds)
-                                let m = remaining / 60
-                                let s = remaining % 60
-                                Text(String(format: "%d:%02d", m, s))
-                                    .font(.system(size: 14, weight: .light, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                            }
+
 
                             if !hasWork {
                                 Image(systemName: "checkmark.circle")

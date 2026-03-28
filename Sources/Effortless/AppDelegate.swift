@@ -682,6 +682,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if case .idle = nudgeManager.state {
                     nudgeManager.start()
                 }
+                // If intention changed, reset nudge state and re-assess
+                nudgeManager.intentionDidChange()
             } else {
                 nudgeManager.stop()
             }
