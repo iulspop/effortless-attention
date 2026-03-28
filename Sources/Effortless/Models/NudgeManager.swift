@@ -130,6 +130,12 @@ class NudgeManager: ObservableObject {
         let appName = app.localizedName ?? "Unknown"
         let windowTitle = AttentionMonitor.windowTitle(for: app) ?? ""
 
+        // Skip apps/windows that are categorically not distractions
+        if appName == "Finder" || (appName == "Google Chrome" && windowTitle.isEmpty) {
+            if case .gentle = state { transitionTo(.idle) }
+            return
+        }
+
         // Cancel any in-flight assessment — we'll start a fresh one
         pendingAssessment?.cancel()
 
