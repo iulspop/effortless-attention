@@ -177,4 +177,75 @@ struct SessionManagerTransitionTests {
         #expect(events[1].from?.contextLabel == "Work")
         #expect(events[1].to.contextLabel == "Study")
     }
+
+    // MARK: - Distraction Logging
+
+    @Test("logDistraction records distraction event with text")
+    func logDistractionRecordsEvent() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (mgr, tLog) = makeManager(dir: dir)
+
+        mgr.addContext(label: "Work", intention: "Build feature", minutes: 25)
+        mgr.logDistraction("Facebook notification")
+
+        let events = tLog.loadAll()
+        #expect(events.count == 2) // start + distraction
+        #expect(events[1].type == .distraction)
+        #expect(events[1].distractionText == "Facebook notification")
+        #expect(events[1].to.contextLabel == "Work")
+        #expect(events[1].to.todoText == "Build feature")
+        #expect(events[1].from == nil)
+    }
+
+    @Test("logDistraction with no active context is no-op")
+    func logDistractionNoContext() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (mgr, tLog) = makeManager(dir: dir)
+
+        mgr.logDistraction("Random thought")
+
+        let events = tLog.loadAll()
+        #expect(events.isEmpty)
+    }
+
+    @Test("multiple distractions attach to current intention")
+    func multipleDistractions() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (mgr, tLog) = makeManager(dir: dir)
+
+        mgr.addContext(label: "Work", intention: "Build feature", minutes: 25)
+        mgr.logDistraction("Twitter")
+        mgr.logDistraction("Email ping")
+        mgr.logDistraction("Snack craving")
+
+        let events = tLog.loadAll()
+        let distractions = events.filter { $0.type == .distraction }
+        #expect(distractions.count == 3)
+        #expect(distractions[0].distractionText == "Twitter")
+        #expect(distractions[1].distractionText == "Email ping")
+        #expect(distractions[2].distractionText == "Snack craving")
+        // All attach to same intention
+        #expect(distractions.allSatisfy { $0.to.todoText == "Build feature" })
+    }
+
+    @Test("distractions after completion attach to new intention")
+    func distractionsAfterCompletion() {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (mgr, tLog) = makeManager(dir: dir)
+
+        mgr.addContext(label: "Work", intention: "Task A", minutes: 10)
+        mgr.addTodoToActiveContext(text: "Task B", minutes: 15)
+        mgr.logDistraction("Before completion")
+        mgr.complete()
+        mgr.logDistraction("After completion")
+
+        let distractions = tLog.loadAll().filter { $0.type == .distraction }
+        #expect(distractions.count == 2)
+        #expect(distractions[0].to.todoText == "Task A")
+        #expect(distractions[1].to.todoText == "Task B")
+    }
 }

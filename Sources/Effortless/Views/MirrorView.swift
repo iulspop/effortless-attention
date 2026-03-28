@@ -9,6 +9,7 @@ struct TimelineNode: Identifiable {
     let rail: Int          // which vertical rail this node sits on
     let row: Int           // vertical position (0 = first event)
     var completedByNext: Bool = false  // the next transition was a completion
+    var distractions: [String] = []    // distraction texts logged during this intention
 }
 
 /// A connector between two nodes — vertical (same rail) or horizontal (cross-rail).
@@ -53,7 +54,11 @@ struct TimelineLayout {
         var nodes: [TimelineNode] = []
         var connectors: [TimelineConnector] = []
 
-        for (row, event) in events.enumerated() {
+        // Separate distractions from transition events
+        let transitionEvents = events.filter { $0.type != .distraction }
+        let distractionEvents = events.filter { $0.type == .distraction }
+
+        for (row, event) in transitionEvents.enumerated() {
             let rail = railFor(event.to.contextId, label: event.to.contextLabel)
             nodes.append(TimelineNode(id: event.id, event: event, rail: rail, row: row))
 
@@ -74,6 +79,15 @@ struct TimelineLayout {
                 if event.type == .completion {
                     nodes[row - 1].completedByNext = true
                 }
+            }
+        }
+
+        // Attach distractions to their parent node (the active intention at the time)
+        for d in distractionEvents {
+            guard let text = d.distractionText else { continue }
+            // Find the last node whose event happened before or at this distraction
+            if let nodeIndex = nodes.lastIndex(where: { $0.event.timestamp <= d.timestamp }) {
+                nodes[nodeIndex].distractions.append(text)
             }
         }
 
@@ -108,7 +122,7 @@ struct MirrorView: View {
 
     // Base layout constants (scaled by zoomLevel)
     private var railSpacing: CGFloat { 120 * zoomLevel }
-    private var rowHeight: CGFloat { 64 * zoomLevel }
+    private var rowHeight: CGFloat { 80 * zoomLevel }
     private var nodeRadius: CGFloat { 5 * zoomLevel }
     private let timeColumnWidth: CGFloat = 50
 
@@ -223,6 +237,8 @@ struct MirrorView: View {
 
     private var graphView: some View {
         let lay = layout
+        let gw = graphWidth(lay)
+        let gh = graphHeight(lay)
 
         return ScrollViewReader { proxy in
             ScrollView([.vertical, .horizontal], showsIndicators: false) {
@@ -235,19 +251,28 @@ struct MirrorView: View {
                         connectorPath(conn, layout: lay)
                     }
 
-                    // Nodes
-                    ForEach(lay.nodes) { node in
-                        nodeView(node, layout: lay)
-                    }
-
                     // Now marker
                     nowMarker(layout: lay)
                         .id("now")
                 }
-                .frame(
-                    width: graphWidth(lay),
-                    height: graphHeight(lay)
-                )
+                .frame(width: gw, height: gh)
+                // Nodes as individual overlays — each gets its own coordinate space for hover/tooltip
+                .overlay {
+                    ForEach(lay.nodes) { node in
+                        NodeCardView(
+                            node: node,
+                            zoomLevel: zoomLevel,
+                            nodeRadius: nodeRadius,
+                            railSpacing: railSpacing
+                        )
+                        .fixedSize()
+                        .position(
+                            x: railX(node.rail, layout: lay),
+                            y: nodeY(node.row, totalRows: lay.nodes.count)
+                        )
+                    }
+                    .frame(width: gw, height: gh)
+                }
                 .padding(.vertical, 40)
             }
             .onAppear {
@@ -268,43 +293,6 @@ struct MirrorView: View {
                 .foregroundColor(isInterruption ? .orange.opacity(0.6) : .secondary.opacity(0.4))
                 .position(x: railX(rail, layout: lay), y: 16 * zoomLevel)
         }
-    }
-
-    // MARK: - Node
-
-    private func nodeView(_ node: TimelineNode, layout lay: TimelineLayout) -> some View {
-        let x = railX(node.rail, layout: lay)
-        let y = nodeY(node.row, totalRows: lay.nodes.count)
-        let isInterruption = node.event.type == .interruption ||
-                             node.event.to.contextLabel == "⚡ Interruption"
-        let isCompleted = node.completedByNext
-
-        let dotColor: Color = isCompleted ? .green.opacity(0.7) :
-                              isInterruption ? .orange.opacity(0.7) :
-                              .primary.opacity(0.35)
-
-        return VStack(spacing: 0) {
-            // The node dot
-            Circle()
-                .fill(dotColor)
-                .frame(width: nodeRadius * 2, height: nodeRadius * 2)
-
-            // Label below node
-            VStack(spacing: 1) {
-                Text(node.event.to.todoText)
-                    .font(.system(size: 12 * zoomLevel, weight: .regular, design: .serif))
-                    .foregroundColor(isCompleted ? .green.opacity(0.8) : .primary.opacity(0.8))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-
-                Text(timeLabel(node.event.timestamp))
-                    .font(.system(size: 10 * zoomLevel, weight: .regular, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.4))
-            }
-            .frame(width: railSpacing - 16)
-            .padding(.top, 4 * zoomLevel)
-        }
-        .position(x: x, y: y)
     }
 
     // MARK: - Connectors
@@ -342,7 +330,6 @@ struct MirrorView: View {
                 dash: conn.type == .contextSwitch ? [4 * zoomLevel, 4 * zoomLevel] : []
             ))
 
-            // Duration label at midpoint of connector
             VStack(spacing: 1) {
                 if let tb = conn.timeboxMinutes {
                     Text("\(tb)m intended")
@@ -395,10 +382,8 @@ struct MirrorView: View {
     }
 
     private func nodeY(_ row: Int, totalRows: Int) -> CGFloat {
-        // Inverted: row 0 (earliest) at bottom, last row (now) at top.
-        // "now" marker uses row = totalRows (one past last node).
         let invertedRow = totalRows - row
-        return CGFloat(invertedRow) * rowHeight + 48 * zoomLevel // offset for rail headers
+        return CGFloat(invertedRow) * rowHeight + 48 * zoomLevel
     }
 
     private func graphWidth(_ lay: TimelineLayout) -> CGFloat {
@@ -409,7 +394,93 @@ struct MirrorView: View {
         CGFloat(lay.nodes.count + 1) * rowHeight + 96 * zoomLevel
     }
 
-    // MARK: - Helpers
+    private func timeLabel(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
+    }
+}
+
+// MARK: - Node Card
+
+private struct NodeCardView: View {
+    let node: TimelineNode
+    let zoomLevel: CGFloat
+    let nodeRadius: CGFloat
+    let railSpacing: CGFloat
+    @State private var isHovering = false
+
+    private var isInterruption: Bool {
+        node.event.type == .interruption || node.event.to.contextLabel == "⚡ Interruption"
+    }
+    private var isCompleted: Bool { node.completedByNext }
+
+    private var accentColor: Color {
+        isCompleted ? .green : isInterruption ? .orange : .primary
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Distraction tick marks above the dot
+            if !node.distractions.isEmpty {
+                HStack(spacing: 2 * zoomLevel) {
+                    ForEach(Array(node.distractions.enumerated()), id: \.offset) { _ in
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(Color.red.opacity(0.5))
+                            .frame(width: 2 * zoomLevel, height: 6 * zoomLevel)
+                    }
+                }
+                .padding(.bottom, 2 * zoomLevel)
+            }
+
+            Circle()
+                .fill(accentColor.opacity(0.7))
+                .frame(width: nodeRadius * 2, height: nodeRadius * 2)
+
+            VStack(spacing: 1) {
+                Text(node.event.to.todoText)
+                    .font(.system(size: 12 * zoomLevel, weight: .regular, design: .serif))
+                    .foregroundColor(accentColor.opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                Text(timeLabel(node.event.timestamp))
+                    .font(.system(size: 10 * zoomLevel, weight: .regular, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.4))
+            }
+            .frame(width: railSpacing - 16)
+            .padding(.top, 4 * zoomLevel)
+        }
+        .padding(.horizontal, 6 * zoomLevel)
+        .padding(.vertical, 4 * zoomLevel)
+        .background(
+            RoundedRectangle(cornerRadius: 6 * zoomLevel)
+                .stroke(isHovering ? accentColor.opacity(0.3) : Color.primary.opacity(0.06), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .overlay(alignment: .trailing) {
+            if isHovering && !node.distractions.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(node.distractions.enumerated()), id: \.offset) { _, text in
+                        Text("• \(text)")
+                            .font(.system(size: 11 * zoomLevel, weight: .regular, design: .serif))
+                            .foregroundColor(.primary.opacity(0.8))
+                    }
+                }
+                .padding(8 * zoomLevel)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(nsColor: .windowBackgroundColor))
+                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                )
+                .offset(x: railSpacing * 0.6)
+                .allowsHitTesting(false)
+            }
+        }
+    }
 
     private func timeLabel(_ date: Date) -> String {
         let f = DateFormatter()

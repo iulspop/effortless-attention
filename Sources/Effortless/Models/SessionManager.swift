@@ -405,7 +405,21 @@ class SessionManager: ObservableObject {
         guard let fromIndex = contexts[contextIndex].todos.firstIndex(where: { $0.id == todoId }) else { return }
         let toIndex = fromIndex + direction
         guard toIndex >= 0, toIndex < contexts[contextIndex].todos.count else { return }
+
+        let beforeTodo = contextIndex == activeIndex ? contexts[contextIndex].currentTodo : nil
+        let fromSnap = contextIndex == activeIndex ? currentSnapshot() : nil
+
         contexts[contextIndex].todos.swapAt(fromIndex, toIndex)
+
+        // If reorder changed the current intention in the active context, log a context switch
+        if contextIndex == activeIndex,
+           let before = beforeTodo,
+           let after = contexts[contextIndex].currentTodo,
+           before.id != after.id,
+           let from = fromSnap,
+           let to = currentSnapshot() {
+            logTransition(.contextSwitch, from: from, to: to)
+        }
         notifyChange()
     }
 
@@ -553,14 +567,20 @@ class SessionManager: ObservableObject {
         )
     }
 
-    private func logTransition(_ type: TransitionEvent.TransitionType, from: CognitiveSnapshot?, to: CognitiveSnapshot) {
+    private func logTransition(_ type: TransitionEvent.TransitionType, from: CognitiveSnapshot?, to: CognitiveSnapshot, distractionText: String? = nil) {
         let event = TransitionEvent(
             type: type,
             from: from,
             to: to,
-            interruptionDepth: interruptionStack.count
+            interruptionDepth: interruptionStack.count,
+            distractionText: distractionText
         )
         transitionLogger.log(event)
+    }
+
+    func logDistraction(_ text: String) {
+        guard let snap = currentSnapshot() else { return }
+        logTransition(.distraction, from: nil, to: snap, distractionText: text)
     }
 
     private func logTodo(_ todo: TodoItem, context ctx: CognitiveContext, outcome: Session.Outcome) {

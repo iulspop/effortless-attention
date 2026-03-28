@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var expiryWindow: NSWindow?
     private var interruptionWindow: NSWindow?
     private var mirrorWindow: NSWindow?
+    private var distractionWindow: NSWindow?
     private var idleTimer: Timer?
     private let sessionManager = SessionManager()
     private let transitionLogger = TransitionLogger()
@@ -143,6 +144,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Log Distraction…", action: #selector(showDistractionPrompt), keyEquivalent: "f"))
         menu.addItem(NSMenuItem(title: "Mirror…", action: #selector(showMirror), keyEquivalent: "m"))
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
@@ -197,6 +199,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotkeyManager.setHandler(for: .openMirror) { [weak self] in
             self?.toggleMirror()
+        }
+        hotkeyManager.setHandler(for: .logDistraction) { [weak self] in
+            self?.toggleDistractionPrompt()
         }
         hotkeyManager.onContextJump = { [weak self] index in
             self?.sessionManager.switchTo(index: index)
@@ -445,6 +450,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
            sessionManager.hasActiveIntention, !sessionManager.isPaused {
             showChalice()
         }
+    }
+
+    // MARK: - Distraction Prompt
+
+    private func toggleDistractionPrompt() {
+        if distractionWindow != nil {
+            dismissDistractionPrompt()
+        } else {
+            showDistractionPromptWindow()
+        }
+    }
+
+    @objc private func showDistractionPrompt() {
+        showDistractionPromptWindow()
+    }
+
+    private func showDistractionPromptWindow() {
+        guard distractionWindow == nil else { return }
+        guard let screen = NSScreen.main else { return }
+
+        let view = DistractionPromptView(
+            onSubmit: { [weak self] text in
+                self?.sessionManager.logDistraction(text)
+                self?.dismissDistractionPrompt()
+            },
+            onDismiss: { [weak self] in
+                self?.dismissDistractionPrompt()
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.frame = screen.frame
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Make the text field first responder
+        DispatchQueue.main.async {
+            if let textField = self.findTextField(in: hostingView) {
+                window.makeFirstResponder(textField)
+            }
+        }
+        distractionWindow = window
+    }
+
+    private func findTextField(in view: NSView) -> NSTextField? {
+        if let tf = view as? NSTextField, tf.isEditable { return tf }
+        for sub in view.subviews {
+            if let found = findTextField(in: sub) { return found }
+        }
+        return nil
+    }
+
+    private func dismissDistractionPrompt() {
+        distractionWindow?.orderOut(nil)
+        distractionWindow?.contentView = nil
+        distractionWindow = nil
     }
 
     // MARK: - Pause / Resume

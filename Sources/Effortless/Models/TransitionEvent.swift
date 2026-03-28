@@ -16,11 +16,14 @@ struct TransitionEvent: Codable, Sendable, Identifiable, Equatable {
     let to: CognitiveSnapshot
     let interruptionDepth: Int
 
+    let distractionText: String?
+
     enum TransitionType: String, Codable, Sendable {
         case start
         case completion
         case interruption
         case contextSwitch
+        case distraction
     }
 
     init(
@@ -29,7 +32,8 @@ struct TransitionEvent: Codable, Sendable, Identifiable, Equatable {
         type: TransitionType,
         from: CognitiveSnapshot?,
         to: CognitiveSnapshot,
-        interruptionDepth: Int = 0
+        interruptionDepth: Int = 0,
+        distractionText: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -37,5 +41,6 @@ struct TransitionEvent: Codable, Sendable, Identifiable, Equatable {
         self.from = from
         self.to = to
         self.interruptionDepth = interruptionDepth
+        self.distractionText = distractionText
     }
 }
