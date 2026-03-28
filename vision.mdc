@@ -176,28 +176,98 @@ Effortless {
     interruptionDepth: Int  // 0 = main flow, 1+ = nested interruption
   }
 
-  ## The LLM Mirror (v0.3)
+  ## The Nudge System (Attention Guardian)
 
-  A local LLM that watches your active context — app names, window titles,
-  time patterns — and reflects when your flow drifts from your stated intention.
+  Watches the user's active app and window title. When behavior drifts from
+  the declared intention, nudges the user back — gently first, then sharply.
+  Uses a local LLM to judge whether the current context is on-task or off-task.
 
-  Mirror {
-    input: intention + contextStream
-    fn assessAlignment(intention, currentContext);
-    fn composeReflection(intention, drift);
+  Detection {
+    source: NSWorkspace.didActivateApplicationNotification (app switches)
+            + AXUIElement observer (browser tab / window title changes)
+    event-driven, not polling — fires instantly on every switch.
 
-    Constraints {
-      Not a judge. A gentle mirror.
-      Never commanding or guilt-inducing.
-      Reflective questions, not directives.
-      "You said you'd write the report. You've been in Twitter for 4 minutes.
-       Is this serving you?"
-      Runs entirely on-device. No network calls. No cloud.
-      Only observes app names and window titles. Never screen content.
+    On each event:
+      1. Capture { appName, windowTitle, timestamp }
+      2. Send to local LLM with current intention + "not distracted" feedback
+      3. LLM returns: distracted (yes/no)
+      4. If distracted → enter nudge escalation
+  }
+
+  LLM Integration {
+    provider: Ollama (localhost:11434/api/generate)
+    model: user-configurable (default: small/fast model)
+    prompt includes:
+      - Current intention text
+      - Current context label
+      - Active app name + window title
+      - "Not distracted" history for this context (user feedback)
+
+    Example prompt:
+      "User's intention: 'Write PR review'
+       Context: 'Work'
+       Not distracting for this context: ['Terminal', 'Stack Overflow']
+       Currently active: 'YouTube - lofi beats'
+       Is the user distracted from their intention? Answer yes or no."
+
+    "Not distracted" feedback {
+      When user dismisses a nudge with "not distracted", the app/title
+      is added to a per-context allowlist. This persists to disk so the
+      LLM learns what's relevant per context across sessions.
+      Storage: ~/Library/Application Support/Effortless/context-allowlists.json
     }
 
-    (drift detected && duration > threshold) => surface gentle reflection
-    (session complete) => compose session narrative
+    Constraints {
+      Runs entirely on-device. No network calls. No cloud.
+      Only observes app names and window titles. Never screen content.
+      Ollama must be running — if unreachable, nudge system is dormant.
+      Model name configurable in Settings.
+    }
+  }
+
+  NudgeEscalation {
+    The escalation is a pressure funnel: gentle → warning → sharp decision.
+
+    Level 0 — Gentle Nudge {
+      Trigger: LLM says distracted.
+      UI: Small text appears near chalice. Shows app name + intention.
+          "You're on [app]. Back to [intention]?"
+      Dismissable: "Not distracted" button → feeds back to LLM allowlist.
+      If user returns to on-task app → nudge disappears, done.
+      If user stays off-task → escalate after configurable delay (default 30s).
+    }
+
+    Level 1 — Flash Warning {
+      Trigger: gentle nudge timeout expired, still off-task.
+      UI: Screen flashes + alert sound. 5-second countdown.
+          "Returning you to your intention in 5..."
+      Flash and sound are independently toggleable in Settings.
+      After 5 seconds → sharp prompt.
+    }
+
+    Level 2 — Sharp Prompt {
+      Trigger: flash warning countdown finished.
+      UI: Fullscreen overlay (like altar). Two choices:
+          "Stop" — return to intention (dismisses, 15s grace period)
+          "Log Interruption" — opens escape hatch flow
+      If user picks "Stop" but LLM detects still distracted after
+      grace period (default 15s) → sharp prompt again immediately.
+      This creates a loop: you either genuinely return or own the
+      interruption. No middle ground.
+    }
+
+    Reset: escalation resets when user returns to on-task behavior
+    (LLM confirms not distracted) or logs an interruption.
+  }
+
+  NudgeSettings {
+    enabled: Bool (default: false — opt-in)
+    ollamaModel: String (user picks which model)
+    gentleNudgeDelay: Int seconds (default: 30)
+    gracePeriodAfterStop: Int seconds (default: 15)
+    flashEnabled: Bool (default: true)
+    soundEnabled: Bool (default: true)
+    soundChoice: system alert | custom (future)
   }
 
   ## The Flow Log
@@ -236,6 +306,13 @@ Effortless {
       Active --> Reflecting: user completes todo
       Active --> EscapeHatch: user interrupts
       Active --> Altar: timer expires
+      Active --> GentleNudge: LLM detects distraction
+      GentleNudge --> Active: user returns / "not distracted"
+      GentleNudge --> FlashWarning: still off-task after delay
+      FlashWarning --> SharpPrompt: 5s countdown expires
+      SharpPrompt --> Active: user picks "Stop"
+      SharpPrompt --> EscapeHatch: user picks "Log Interruption"
+      SharpPrompt --> SharpPrompt: "Stop" but still distracted after grace
       EscapeHatch --> Active: interruption completed/discarded
       EscapeHatch --> EscapeHatch: nested interruption (with guardrail)
       Reflecting --> Altar: reflection acknowledged
@@ -318,11 +395,12 @@ Effortless {
     Rule-based drift detection.
   }
 
-  v0.3 — The Witness (Local LLM) {
-    Local LLM integration via Ollama.
-    Intention understanding. Context matching.
-    Gentle reflections surfaced in floating overlay.
-    Session narrative summaries.
+  v0.3 — The Witness (Nudge System) {
+    Active app + window title monitoring via accessibility APIs.
+    Local LLM integration via Ollama for distraction detection.
+    Nudge escalation: gentle text → flash warning → sharp stop/interrupt prompt.
+    Per-context "not distracted" feedback loop into LLM prompt.
+    Configurable: model, timing, flash, sound.
   }
 
   v0.4 — The Temple (Deep Integration) {

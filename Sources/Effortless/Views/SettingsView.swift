@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var appearance: AppearanceManager
     @ObservedObject var hotkeyManager: HotkeyManager
+    @State private var showNudgeInfo = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -65,6 +66,101 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 4) {
+                    Toggle("Distraction Nudge", isOn: $appearance.nudgeEnabled)
+                        .font(.system(size: 13, weight: .regular))
+
+                    Button(action: { showNudgeInfo.toggle() }) {
+                        Text("ⓘ")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showNudgeInfo, arrowEdge: .trailing) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Requires Ollama running locally.")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Install:")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .padding(.top, 2)
+                            Text("brew install ollama")
+                                .font(.system(size: 11, design: .monospaced))
+                            Text("Start on login:")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .padding(.top, 2)
+                            Text("brew services start ollama")
+                                .font(.system(size: 11, design: .monospaced))
+                            Text("Pull a model:")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .padding(.top, 2)
+                            Text("ollama pull gemma2:2b")
+                                .font(.system(size: 11, design: .monospaced))
+                            Divider()
+                            Text("Or install the desktop app from\nollama.com — it auto-starts on login.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(12)
+                    }
+                }
+
+                if appearance.nudgeEnabled {
+                    HStack(spacing: 8) {
+                        Text("Ollama model")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        TextField("Model name", text: $appearance.ollamaModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Escalation delay")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Picker("", selection: $appearance.gentleNudgeDelay) {
+                            Text("1s").tag(1)
+                            Text("5s").tag(5)
+                            Text("15s").tag(15)
+                            Text("30s").tag(30)
+                            Text("60s").tag(60)
+                            Text("120s").tag(120)
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 80)
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Grace after stop")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Picker("", selection: $appearance.gracePeriodAfterStop) {
+                            Text("5s").tag(5)
+                            Text("15s").tag(15)
+                            Text("30s").tag(30)
+                            Text("60s").tag(60)
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 80)
+                    }
+
+                    Toggle("Flash screen on escalation", isOn: $appearance.nudgeFlashEnabled)
+                        .font(.system(size: 12))
+                    Toggle("Play sound on escalation", isOn: $appearance.nudgeSoundEnabled)
+                        .font(.system(size: 12))
+                }
+            }
+
+            Divider()
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Keyboard Shortcuts")

@@ -12,11 +12,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var interruptionWindow: NSWindow?
     private var mirrorWindow: NSWindow?
     private var distractionWindow: NSWindow?
+    private var gentleNudgeWindow: NSWindow?
+    private var sharpPromptWindow: NSWindow?
     private var idleTimer: Timer?
     private let sessionManager = SessionManager()
     private let transitionLogger = TransitionLogger()
     private let appearanceManager = AppearanceManager.shared
     private let hotkeyManager = HotkeyManager.shared
+    private lazy var nudgeManager = NudgeManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon — menubar-only app
@@ -75,6 +78,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start idle auto-pause monitor
         startIdleMonitor()
+
+        // Set up nudge system
+        setupNudgeManager()
+
+        // React to nudge settings changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(nudgeSettingsChanged),
+            name: .nudgeSettingsChanged,
+            object: nil
+        )
     }
 
     // MARK: - Menu Bar (The Chalice)
@@ -659,9 +673,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if sessionManager.contexts.isEmpty {
             hideChalice()
             showAltar()
+            nudgeManager.stop()
         } else {
             // Restart idle monitor when session state changes
             startIdleMonitor()
+            // Start/stop nudge system based on active intention
+            if appearanceManager.nudgeEnabled && sessionManager.hasActiveIntention && !sessionManager.isPaused {
+                if case .idle = nudgeManager.state {
+                    nudgeManager.start()
+                }
+            } else {
+                nudgeManager.stop()
+            }
         }
     }
 
@@ -815,6 +838,176 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    // MARK: - Nudge System
+
+    private func setupNudgeManager() {
+        nudgeManager.intentionProvider = { [weak self] in
+            guard let self,
+                  let ctx = self.sessionManager.activeContext,
+                  let todo = ctx.currentTodo else { return nil }
+            return (intention: todo.text, contextLabel: ctx.label, contextId: ctx.id)
+        }
+
+        nudgeManager.onGentleNudge = { [weak self] app, intention in
+            self?.showGentleNudge(app: app, intention: intention)
+        }
+        nudgeManager.onDismissGentleNudge = { [weak self] in
+            self?.dismissGentleNudge()
+        }
+        nudgeManager.onFlash = { [weak self] in
+            self?.flashScreen()
+        }
+        nudgeManager.onSharpPrompt = { [weak self] in
+            self?.showSharpPrompt()
+        }
+        nudgeManager.onDismissSharpPrompt = { [weak self] in
+            self?.dismissSharpPrompt()
+        }
+
+        if appearanceManager.nudgeEnabled {
+            AttentionMonitor.requestAccessibilityIfNeeded()
+            if sessionManager.hasActiveIntention {
+                nudgeManager.start()
+            }
+        }
+    }
+
+    @objc private func nudgeSettingsChanged() {
+        if appearanceManager.nudgeEnabled {
+            AttentionMonitor.requestAccessibilityIfNeeded()
+        }
+        if appearanceManager.nudgeEnabled && sessionManager.hasActiveIntention {
+            nudgeManager.stop()
+            nudgeManager.start()
+        } else {
+            nudgeManager.stop()
+        }
+    }
+
+    private func showGentleNudge(app: String, intention: String) {
+        dismissGentleNudge()
+
+        let view = GentleNudgeView(
+            appName: app,
+            intention: intention,
+            onDismiss: { [weak self] in
+                self?.nudgeManager.userMarkedNotDistracted()
+            }
+        )
+
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.frame.size = hostingView.fittingSize
+
+        let window = NSPanel(
+            contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
+            styleMask: [.nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.contentView = hostingView
+
+        // Position near chalice (top-right by default)
+        if let screen = NSScreen.main {
+            let area = screen.visibleFrame
+            let x = area.maxX - hostingView.fittingSize.width - 20
+            let y = area.maxY - hostingView.fittingSize.height - 140 // below chalice
+            window.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
+        window.orderFront(nil)
+        gentleNudgeWindow = window
+    }
+
+    private func dismissGentleNudge() {
+        gentleNudgeWindow?.orderOut(nil)
+        gentleNudgeWindow?.contentView = nil
+        gentleNudgeWindow = nil
+    }
+
+    private func flashScreen() {
+        guard appearanceManager.nudgeFlashEnabled else { return }
+        guard let screen = NSScreen.main else { return }
+
+        let flashWindow = NSWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        flashWindow.level = .screenSaver
+        flashWindow.isOpaque = false
+        flashWindow.backgroundColor = NSColor.orange.withAlphaComponent(0.3)
+        flashWindow.collectionBehavior = [.canJoinAllSpaces]
+        flashWindow.orderFront(nil)
+
+        // Flash twice over ~1 second
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            flashWindow.backgroundColor = .clear
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            flashWindow.backgroundColor = NSColor.orange.withAlphaComponent(0.3)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            flashWindow.orderOut(nil)
+        }
+    }
+
+    private func showSharpPrompt() {
+        dismissGentleNudge()
+        dismissSharpPrompt()
+
+        let intention = sessionManager.activeContext?.currentTodo?.text ?? "your intention"
+
+        let view = SharpPromptView(
+            intention: intention,
+            onStop: { [weak self] in
+                self?.nudgeManager.userPickedStop()
+            },
+            onInterrupt: { [weak self] in
+                self?.nudgeManager.userPickedInterrupt()
+                self?.interruptSession()
+            }
+        )
+
+        guard let screen = NSScreen.main else { return }
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.contentView = NSHostingView(rootView: view)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        NSApp.presentationOptions = [
+            .disableProcessSwitching,
+            .disableForceQuit,
+            .disableSessionTermination,
+            .disableHideApplication,
+            .disableAppleMenu,
+            .disableMenuBarTransparency,
+            .hideMenuBar,
+            .hideDock
+        ]
+
+        sharpPromptWindow = window
+    }
+
+    private func dismissSharpPrompt() {
+        guard sharpPromptWindow != nil else { return }
+        NSApp.presentationOptions = []
+        sharpPromptWindow?.orderOut(nil)
+        sharpPromptWindow?.contentView = nil
+        sharpPromptWindow = nil
     }
 }
 

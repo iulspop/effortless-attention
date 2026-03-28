@@ -71,6 +71,47 @@ class AppearanceManager: ObservableObject {
         }
     }
 
+    // MARK: - Nudge System Settings
+
+    @Published var nudgeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(nudgeEnabled, forKey: "nudgeEnabled")
+            NotificationCenter.default.post(name: .nudgeSettingsChanged, object: nil)
+        }
+    }
+
+    @Published var ollamaModel: String {
+        didSet {
+            UserDefaults.standard.set(ollamaModel, forKey: "ollamaModel")
+        }
+    }
+
+    /// Seconds before gentle nudge escalates to flash warning.
+    @Published var gentleNudgeDelay: Int {
+        didSet {
+            UserDefaults.standard.set(gentleNudgeDelay, forKey: "gentleNudgeDelay")
+        }
+    }
+
+    /// Seconds of grace after user picks "Stop" before re-checking.
+    @Published var gracePeriodAfterStop: Int {
+        didSet {
+            UserDefaults.standard.set(gracePeriodAfterStop, forKey: "gracePeriodAfterStop")
+        }
+    }
+
+    @Published var nudgeFlashEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(nudgeFlashEnabled, forKey: "nudgeFlashEnabled")
+        }
+    }
+
+    @Published var nudgeSoundEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(nudgeSoundEnabled, forKey: "nudgeSoundEnabled")
+        }
+    }
+
     private init() {
         let saved = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
         self.mode = AppearanceMode(rawValue: saved) ?? .system
@@ -85,6 +126,16 @@ class AppearanceManager: ObservableObject {
         self.launchAtLogin = userWantsLogin
         let savedIdle = UserDefaults.standard.integer(forKey: "idleTimeoutMinutes")
         self.idleTimeoutMinutes = savedIdle > 0 ? savedIdle : 5  // default 5 minutes
+
+        // Nudge settings
+        self.nudgeEnabled = UserDefaults.standard.bool(forKey: "nudgeEnabled") // default false
+        self.ollamaModel = UserDefaults.standard.string(forKey: "ollamaModel") ?? "gemma2:2b"
+        let savedGentleDelay = UserDefaults.standard.integer(forKey: "gentleNudgeDelay")
+        self.gentleNudgeDelay = savedGentleDelay > 0 ? savedGentleDelay : 5
+        let savedGrace = UserDefaults.standard.integer(forKey: "gracePeriodAfterStop")
+        self.gracePeriodAfterStop = savedGrace > 0 ? savedGrace : 5
+        self.nudgeFlashEnabled = UserDefaults.standard.object(forKey: "nudgeFlashEnabled") as? Bool ?? true
+        self.nudgeSoundEnabled = UserDefaults.standard.object(forKey: "nudgeSoundEnabled") as? Bool ?? true
     }
 
     func apply() {
@@ -94,4 +145,5 @@ class AppearanceManager: ObservableObject {
 
 extension Notification.Name {
     static let chaliceDisplayChanged = Notification.Name("chaliceDisplayChanged")
+    static let nudgeSettingsChanged = Notification.Name("nudgeSettingsChanged")
 }
