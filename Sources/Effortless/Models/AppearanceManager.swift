@@ -93,6 +93,13 @@ class AppearanceManager: ObservableObject {
         }
     }
 
+    /// Seconds between flash warning and sharp fullscreen prompt.
+    @Published var flashToSharpDelay: Int {
+        didSet {
+            UserDefaults.standard.set(flashToSharpDelay, forKey: "flashToSharpDelay")
+        }
+    }
+
     /// Seconds of grace after user picks "Stop" before re-checking.
     @Published var gracePeriodAfterStop: Int {
         didSet {
@@ -129,9 +136,11 @@ class AppearanceManager: ObservableObject {
 
         // Nudge settings
         self.nudgeEnabled = UserDefaults.standard.bool(forKey: "nudgeEnabled") // default false
-        self.ollamaModel = UserDefaults.standard.string(forKey: "ollamaModel") ?? "gemma2:2b"
+        self.ollamaModel = UserDefaults.standard.string(forKey: "ollamaModel") ?? "auto"
         let savedGentleDelay = UserDefaults.standard.integer(forKey: "gentleNudgeDelay")
-        self.gentleNudgeDelay = savedGentleDelay > 0 ? savedGentleDelay : 5
+        self.gentleNudgeDelay = savedGentleDelay > 0 ? savedGentleDelay : 30
+        let savedFlashToSharp = UserDefaults.standard.integer(forKey: "flashToSharpDelay")
+        self.flashToSharpDelay = savedFlashToSharp > 0 ? savedFlashToSharp : 5
         let savedGrace = UserDefaults.standard.integer(forKey: "gracePeriodAfterStop")
         self.gracePeriodAfterStop = savedGrace > 0 ? savedGrace : 5
         self.nudgeFlashEnabled = UserDefaults.standard.object(forKey: "nudgeFlashEnabled") as? Bool ?? true

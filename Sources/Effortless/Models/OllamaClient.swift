@@ -74,6 +74,27 @@ struct OllamaClient: Sendable {
         }
     }
 
+    /// Fetch the list of locally available models, sorted smallest first.
+    static func availableModels(baseURL: URL = URL(string: "http://localhost:11434")!) async -> [String] {
+        let url = baseURL.appendingPathComponent("api/tags")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let models = json["models"] as? [[String: Any]] else { return [] }
+            // Sort by size (smallest first — faster for distraction checks)
+            let sorted = models.sorted {
+                ($0["size"] as? Int ?? Int.max) < ($1["size"] as? Int ?? Int.max)
+            }
+            return sorted.compactMap { $0["name"] as? String }
+        } catch {
+            return []
+        }
+    }
+
     private func buildPrompt(_ query: DistractionQuery) -> String {
         var prompt = """
         You are an attention monitor. The user has declared an intention and you must judge \

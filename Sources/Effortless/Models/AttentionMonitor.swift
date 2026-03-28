@@ -63,12 +63,12 @@ class AttentionMonitor {
         if bundleId == ownBundleId { return }
 
         let appName = app.localizedName ?? "Unknown"
+        // Window title may not be ready yet at activation time — fire with what we have,
+        // the poll timer will pick up the title shortly after.
         let windowTitle = Self.windowTitle(for: app) ?? ""
         let ctx = AppContext(appName: appName, windowTitle: windowTitle, bundleId: bundleId)
-        if ctx != lastContext {
-            lastContext = ctx
-            onChange?(ctx)
-        }
+        lastContext = ctx
+        onChange?(ctx)
     }
 
     private func checkCurrentContext() {
@@ -79,6 +79,7 @@ class AttentionMonitor {
         let appName = app.localizedName ?? "Unknown"
         let windowTitle = Self.windowTitle(for: app) ?? ""
         let ctx = AppContext(appName: appName, windowTitle: windowTitle, bundleId: bundleId)
+        // Always fire if title changed (e.g. tab switch within same browser)
         if ctx != lastContext {
             lastContext = ctx
             onChange?(ctx)

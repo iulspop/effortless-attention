@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject var appearance: AppearanceManager
     @ObservedObject var hotkeyManager: HotkeyManager
     @State private var showNudgeInfo = false
+    @State private var showModelInfo = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -116,13 +117,22 @@ struct SettingsView: View {
                         Text("Ollama model")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
-                        TextField("Model name", text: $appearance.ollamaModel)
+                        TextField("auto", text: $appearance.ollamaModel)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 140)
+                        Text("ⓘ")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .onTapGesture { showModelInfo.toggle() }
+                            .popover(isPresented: $showModelInfo, arrowEdge: .trailing) {
+                                Text("\"auto\" picks the smallest\navailable model from Ollama.\n\nOr type a specific model name\ne.g. gemma2:2b, llama3.2")
+                                    .font(.system(size: 11))
+                                    .padding(10)
+                            }
                     }
 
                     HStack(spacing: 8) {
-                        Text("Escalation delay")
+                        Text("Nudge → flash")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                         Picker("", selection: $appearance.gentleNudgeDelay) {
@@ -132,6 +142,22 @@ struct SettingsView: View {
                             Text("30s").tag(30)
                             Text("60s").tag(60)
                             Text("120s").tag(120)
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 80)
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Flash → sharp")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Picker("", selection: $appearance.flashToSharpDelay) {
+                            Text("1s").tag(1)
+                            Text("3s").tag(3)
+                            Text("5s").tag(5)
+                            Text("10s").tag(10)
+                            Text("15s").tag(15)
                         }
                         .pickerStyle(.menu)
                         .labelsHidden()

@@ -47,8 +47,23 @@ class NudgeManager: ObservableObject {
 
     func start() {
         guard appearanceManager.nudgeEnabled else { return }
-        ollamaClient = OllamaClient(model: appearanceManager.ollamaModel)
 
+        let configuredModel = appearanceManager.ollamaModel
+        if configuredModel.isEmpty || configuredModel == "auto" {
+            // Auto-detect: pick the first (smallest) available model
+            Task {
+                let models = await OllamaClient.availableModels()
+                guard let first = models.first else { return }
+                self.ollamaClient = OllamaClient(model: first)
+                self.beginMonitoring()
+            }
+        } else {
+            ollamaClient = OllamaClient(model: configuredModel)
+            beginMonitoring()
+        }
+    }
+
+    private func beginMonitoring() {
         attentionMonitor.onChange = { [weak self] ctx in
             self?.handleContextChange(ctx)
         }
@@ -165,7 +180,8 @@ class NudgeManager: ObservableObject {
     private func beginGentleNudge(app: String, windowTitle: String) {
         guard let info = intentionProvider?() else { return }
         transitionTo(.gentle(app: app, windowTitle: windowTitle))
-        onGentleNudge?(app, info.intention)
+        let displayName = windowTitle.isEmpty ? app : windowTitle
+        onGentleNudge?(displayName, info.intention)
 
         // Start escalation timer
         escalationTimer = Timer.scheduledTimer(withTimeInterval: Double(appearanceManager.gentleNudgeDelay), repeats: false) { [weak self] _ in
@@ -185,8 +201,7 @@ class NudgeManager: ObservableObject {
 
         onFlash?()
 
-        // 5-second countdown then sharp prompt
-        flashTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+        flashTimer = Timer.scheduledTimer(withTimeInterval: Double(appearanceManager.flashToSharpDelay), repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.flashTimer = nil
                 self?.escalateToSharp()
