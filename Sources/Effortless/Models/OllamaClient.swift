@@ -25,19 +25,19 @@ struct OllamaClient: Sendable {
 
     /// Ask the LLM whether the user is distracted. Returns nil if Ollama is unreachable.
     func assess(_ query: DistractionQuery) async -> DistractionResult? {
-        let prompt = buildPrompt(query)
-        let url = baseURL.appendingPathComponent("api/generate")
+        let messages = buildMessages(query)
+        let url = baseURL.appendingPathComponent("api/chat")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30 // first call loads model into GPU — can take 10-15s
+        request.timeoutInterval = 30
 
         let body: [String: Any] = [
             "model": model,
-            "prompt": prompt,
+            "messages": messages,
             "stream": false,
-            "options": ["temperature": 0.1, "num_predict": 20, "num_ctx": 2048]
+            "options": ["temperature": 0.1, "num_predict": 3, "num_ctx": 2048]
         ]
 
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return nil }
@@ -49,14 +49,15 @@ struct OllamaClient: Sendable {
                   httpResponse.statusCode == 200 else { return nil }
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let responseText = json["response"] as? String else { return nil }
+                  let message = json["message"] as? [String: Any],
+                  let content = message["content"] as? String else { return nil }
 
-            let trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let isDistracted = trimmed.hasPrefix("yes")
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let isDistracted = trimmed.hasPrefix("DISTRACTED") || trimmed.contains("DISTRACTED")
 
-            return DistractionResult(isDistracted: isDistracted, raw: responseText)
+            return DistractionResult(isDistracted: isDistracted, raw: content)
         } catch {
-            return nil // Ollama unreachable — nudge system goes dormant
+            return nil
         }
     }
 
@@ -74,7 +75,7 @@ struct OllamaClient: Sendable {
         }
     }
 
-    /// Fetch the list of locally available models, sorted smallest first.
+    /// Fetch the list of locally available models, sorted largest first (bigger = smarter).
     static func availableModels(baseURL: URL = URL(string: "http://localhost:11434")!) async -> [String] {
         let url = baseURL.appendingPathComponent("api/tags")
         var request = URLRequest(url: url)
@@ -85,9 +86,8 @@ struct OllamaClient: Sendable {
                   httpResponse.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let models = json["models"] as? [[String: Any]] else { return [] }
-            // Sort by size (smallest first — faster for distraction checks)
             let sorted = models.sorted {
-                ($0["size"] as? Int ?? Int.max) < ($1["size"] as? Int ?? Int.max)
+                ($0["size"] as? Int ?? 0) > ($1["size"] as? Int ?? 0)
             }
             return sorted.compactMap { $0["name"] as? String }
         } catch {
@@ -95,27 +95,30 @@ struct OllamaClient: Sendable {
         }
     }
 
-    private func buildPrompt(_ query: DistractionQuery) -> String {
-        var prompt = """
-        You are an attention monitor. The user has declared an intention and you must judge \
-        whether their current app/window is relevant to that intention.
+    private func buildMessages(_ query: DistractionQuery) -> [[String: String]] {
+        let windowDesc = query.windowTitle.isEmpty ? query.activeApp : query.windowTitle
 
-        User's intention: "\(query.intention)"
-        Context: "\(query.contextLabel)"
-        Currently active app: "\(query.activeApp)"
-        Current window title: "\(query.windowTitle)"
-        """
+        var systemPrompt = "Classify the user's screen as DISTRACTED or FOCUSED relative to their task. Reply with ONLY one word. Be strict: the screen must be DIRECTLY helping the task to be FOCUSED."
 
         if !query.allowedItems.isEmpty {
-            prompt += "\nUser marked as NOT distracting for this context: \(query.allowedItems)"
+            systemPrompt += " Exception — the user said these ARE on-task: \(query.allowedItems.joined(separator: ", "))."
         }
 
-        prompt += """
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt],
+            // Few-shot examples from different domains to avoid leaking the actual task
+            ["role": "user", "content": "Task: \"Write Q3 report\" Screen: \"YouTube - Google Chrome\""],
+            ["role": "assistant", "content": "DISTRACTED"],
+            ["role": "user", "content": "Task: \"Write Q3 report\" Screen: \"Q3 Report.docx - Word\""],
+            ["role": "assistant", "content": "FOCUSED"],
+            ["role": "user", "content": "Task: \"Study on duolingo.com\" Screen: \"Reddit - Google Chrome\""],
+            ["role": "assistant", "content": "DISTRACTED"],
+            ["role": "user", "content": "Task: \"Study on duolingo.com\" Screen: \"Duolingo - Learn Spanish - Google Chrome\""],
+            ["role": "assistant", "content": "FOCUSED"],
+            // Actual query
+            ["role": "user", "content": "Task: \"\(query.intention)\" Screen: \"\(windowDesc)\""],
+        ]
 
-        
-        Is the user distracted from their intention? Answer only "yes" or "no".
-        """
-
-        return prompt
+        return messages
     }
 }

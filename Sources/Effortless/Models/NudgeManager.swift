@@ -45,15 +45,23 @@ class NudgeManager: ObservableObject {
         self.ollamaClient = OllamaClient(model: appearanceManager.ollamaModel)
     }
 
+    private var isRunning = false
+
     func start() {
+        
         guard appearanceManager.nudgeEnabled else { return }
+        guard !isRunning else { return }  // Already running — don't stack monitors
+        isRunning = true
 
         let configuredModel = appearanceManager.ollamaModel
         if configuredModel.isEmpty || configuredModel == "auto" {
             // Auto-detect: pick the first (smallest) available model
             Task {
                 let models = await OllamaClient.availableModels()
-                guard let first = models.first else { return }
+                guard let first = models.first else {
+                    isRunning = false
+                    return
+                }
                 self.ollamaClient = OllamaClient(model: first)
                 self.beginMonitoring()
             }
@@ -76,6 +84,7 @@ class NudgeManager: ObservableObject {
         pendingAssessment?.cancel()
         pendingAssessment = nil
         transitionTo(.idle)
+        isRunning = false
     }
 
     // MARK: - User Actions
@@ -116,9 +125,15 @@ class NudgeManager: ObservableObject {
     // MARK: - Context Change Handling
 
     private func handleContextChange(_ ctx: AttentionMonitor.AppContext) {
-        // Don't process changes during escalation — user must interact with the prompt
+        // Hard lock during flash/sharp/grace — user must interact with the prompt
         switch state {
-        case .flash, .sharp, .grace: return
+        case .flash, .sharp, .grace:
+            return
+        case .gentle:
+            // During gentle nudge, re-assess — if user went back on-task, dismiss
+            pendingAssessment?.cancel()
+            reassessDuringGentle(ctx)
+            return
         default: break
         }
 
@@ -127,7 +142,6 @@ class NudgeManager: ObservableObject {
 
         // If user returned to a non-distracting app, reset
         if ctx == lastDistractingContext {
-            // Still on the same distracting thing — don't re-query
             return
         }
 
@@ -147,8 +161,10 @@ class NudgeManager: ObservableObject {
         handleContextChange(ctx)
     }
 
-    private func assessDistraction(_ ctx: AttentionMonitor.AppContext) {
+    /// During gentle nudge, check if user switched to an on-task app. If so, dismiss nudge.
+    private func reassessDuringGentle(_ ctx: AttentionMonitor.AppContext) {
         guard let info = intentionProvider?() else { return }
+
 
         let query = OllamaClient.DistractionQuery(
             intention: info.intention,
@@ -161,6 +177,39 @@ class NudgeManager: ObservableObject {
         pendingAssessment = Task {
             guard let result = await ollamaClient.assess(query) else { return }
             guard !Task.isCancelled else { return }
+
+
+            if !result.isDistracted {
+                // User went back on-task — dismiss gentle nudge
+                lastDistractingContext = nil
+                transitionTo(.idle)
+            }
+            // If still distracted, do nothing — escalation timer keeps running
+        }
+    }
+
+    private func assessDistraction(_ ctx: AttentionMonitor.AppContext) {
+        guard let info = intentionProvider?() else {
+            return
+        }
+
+
+        let query = OllamaClient.DistractionQuery(
+            intention: info.intention,
+            contextLabel: info.contextLabel,
+            activeApp: ctx.appName,
+            windowTitle: ctx.windowTitle,
+            allowedItems: allowlistStore.entries(forContextId: info.contextId)
+        )
+
+        pendingAssessment = Task {
+            guard let result = await ollamaClient.assess(query) else {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+
 
             if result.isDistracted {
                 lastDistractingContext = ctx

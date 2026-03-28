@@ -20,6 +20,9 @@ class AttentionMonitor {
     private let ownBundleId = Bundle.main.bundleIdentifier ?? "com.iulspop.effortless"
 
     func start() {
+        // Stop any existing monitoring first to prevent stacking
+        stop()
+
         // Listen for app activation events
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -61,6 +64,7 @@ class AttentionMonitor {
         let bundleId = app.bundleIdentifier
         // Ignore our own app activating (altar, mirror, etc.)
         if bundleId == ownBundleId { return }
+        if app.localizedName == "Effortless" { return }
 
         let appName = app.localizedName ?? "Unknown"
         // Window title may not be ready yet at activation time — fire with what we have,
@@ -75,6 +79,7 @@ class AttentionMonitor {
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
         let bundleId = app.bundleIdentifier
         if bundleId == ownBundleId { return }
+        if app.localizedName == "Effortless" { return }
 
         let appName = app.localizedName ?? "Unknown"
         let windowTitle = Self.windowTitle(for: app) ?? ""
