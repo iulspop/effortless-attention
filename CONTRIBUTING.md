@@ -73,11 +73,8 @@ Commit and push to `main`.
 brew tap iulspop/effortless && brew install --cask effortless
 ```
 
-### Gatekeeper Note
+### Upgrading
 
-The app is codesigned but not yet notarized. On first launch, macOS may still show a warning. To open:
-
-1. Right-click `Effortless.app` → **Open**, or
-2. Go to **System Settings → Privacy & Security** and click **Open Anyway**
-
-This only needs to be done once. Once notarization is added, this step won't be needed.
+```bash
+brew update && brew upgrade effortless
+```
