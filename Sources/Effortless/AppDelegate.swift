@@ -677,13 +677,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // Restart idle monitor when session state changes
             startIdleMonitor()
-            // Start/stop nudge system based on active intention
-            if appearanceManager.nudgeEnabled && sessionManager.hasActiveIntention && !sessionManager.isPaused {
-                if case .idle = nudgeManager.state {
-                    nudgeManager.start()
-                }
-                // If intention changed, reset nudge state and re-assess
-                nudgeManager.intentionDidChange()
+            // Nudge system: just keep it running, poll() handles everything
+            if appearanceManager.nudgeEnabled && !sessionManager.isPaused {
+                if !nudgeManager.isStarted { nudgeManager.start() }
             } else {
                 nudgeManager.stop()
             }
