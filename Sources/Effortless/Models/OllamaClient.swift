@@ -120,7 +120,8 @@ struct OllamaClient: Sendable {
         }
 
         // Actual query
-        messages.append(["role": "user", "content": "Task: \"\(query.intention)\" Screen: \"\(windowDesc)\""])
+        let taskDesc = query.contextLabel.isEmpty ? query.intention : "[\(query.contextLabel)] \(query.intention)"
+        messages.append(["role": "user", "content": "Task: \"\(taskDesc)\" Screen: \"\(windowDesc)\""])
 
         return messages
     }
