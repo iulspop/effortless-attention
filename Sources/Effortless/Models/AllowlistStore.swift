@@ -1,8 +1,9 @@
 import Foundation
 
-/// Persists per-context "not distracted" allowlists to disk.
+/// Persists per-intention "not distracted" allowlists to disk.
 /// When the user dismisses a nudge with "not distracted", the app/window entry
 /// is saved here so the LLM prompt includes it in future assessments.
+/// Keyed by contextId + intention so feedback only applies to that specific intention.
 struct AllowlistStore {
     private let fileURL: URL
 
@@ -15,29 +16,35 @@ struct AllowlistStore {
         self.fileURL = dir.appendingPathComponent("context-allowlists.json")
     }
 
-    /// Get all allowed entries for a context.
-    func entries(forContextId contextId: UUID) -> [String] {
-        let all = loadAll()
-        return all[contextId.uuidString] ?? []
+    private func key(contextId: UUID, intention: String) -> String {
+        "\(contextId.uuidString):\(intention)"
     }
 
-    /// Add an entry to a context's allowlist.
-    func add(_ entry: String, forContextId contextId: UUID) {
+    /// Get all allowed entries for a specific intention in a context.
+    func entries(forContextId contextId: UUID, intention: String) -> [String] {
+        let all = loadAll()
+        return all[key(contextId: contextId, intention: intention)] ?? []
+    }
+
+    /// Add an entry to an intention's allowlist.
+    func add(_ entry: String, forContextId contextId: UUID, intention: String) {
         var all = loadAll()
-        var list = all[contextId.uuidString] ?? []
+        let k = key(contextId: contextId, intention: intention)
+        var list = all[k] ?? []
         if !list.contains(entry) {
             list.append(entry)
         }
-        all[contextId.uuidString] = list
+        all[k] = list
         save(all)
     }
 
-    /// Remove an entry from a context's allowlist.
-    func remove(_ entry: String, forContextId contextId: UUID) {
+    /// Remove an entry from an intention's allowlist.
+    func remove(_ entry: String, forContextId contextId: UUID, intention: String) {
         var all = loadAll()
-        var list = all[contextId.uuidString] ?? []
+        let k = key(contextId: contextId, intention: intention)
+        var list = all[k] ?? []
         list.removeAll { $0 == entry }
-        all[contextId.uuidString] = list
+        all[k] = list
         save(all)
     }
 

@@ -138,7 +138,7 @@ class NudgeManager: ObservableObject {
             contextLabel: info.contextLabel,
             activeApp: appName,
             windowTitle: windowTitle,
-            allowedItems: allowlistStore.entries(forContextId: info.contextId)
+            allowedItems: allowlistStore.entries(forContextId: info.contextId, intention: info.intention)
         )
 
         pendingAssessment = Task {
@@ -164,7 +164,7 @@ class NudgeManager: ObservableObject {
         guard case .gentle(let app, let windowTitle) = state else { return }
         if let info = intentionProvider?() {
             let entry = "\(app) - \(windowTitle)"
-            allowlistStore.add(entry, forContextId: info.contextId)
+            allowlistStore.add(entry, forContextId: info.contextId, intention: info.intention)
         }
         transitionTo(.idle)
     }
