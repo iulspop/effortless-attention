@@ -35,6 +35,7 @@ class NudgeManager: ObservableObject {
     private var flashTimer: Timer?
     private var graceTimer: Timer?
     private var pendingAssessment: Task<Void, Never>?
+    private var lastNudgedIntention: String?
 
     private(set) var isStarted = false
 
@@ -75,6 +76,7 @@ class NudgeManager: ObservableObject {
         cancelAllTimers()
         pendingAssessment?.cancel()
         pendingAssessment = nil
+        lastNudgedIntention = nil
         transitionTo(.idle)
         isStarted = false
     }
@@ -94,7 +96,7 @@ class NudgeManager: ObservableObject {
         pollTimer = nil
     }
 
-    /// Core loop: called every 3 seconds.
+    /// Core loop: called every 2 seconds.
     private func poll() {
         guard isStarted else { return }
 
@@ -113,6 +115,11 @@ class NudgeManager: ObservableObject {
                 transitionTo(.idle)
             }
             return
+        }
+
+        // If intention changed since last nudge, dismiss stale nudge
+        if case .gentle = state, info.intention != lastNudgedIntention {
+            transitionTo(.idle)
         }
 
         // Get frontmost app
@@ -139,16 +146,8 @@ class NudgeManager: ObservableObject {
             guard !Task.isCancelled else { return }
 
             if result.isDistracted {
-                switch self.state {
-                case .idle:
-                    // Start gentle nudge
-                    self.beginGentleNudge(app: appName, windowTitle: windowTitle)
-                case .gentle:
-                    // Already nudging — escalation timer handles progression
-                    break
-                default:
-                    break
-                }
+                // Always (re)show gentle nudge with current app info
+                self.beginGentleNudge(app: appName, windowTitle: windowTitle)
             } else {
                 // Not distracted — dismiss any gentle nudge
                 if case .gentle = self.state {
@@ -191,14 +190,24 @@ class NudgeManager: ObservableObject {
 
     private func beginGentleNudge(app: String, windowTitle: String) {
         guard let info = intentionProvider?() else { return }
-        transitionTo(.gentle(app: app, windowTitle: windowTitle))
+        lastNudgedIntention = info.intention
         let displayName = windowTitle.isEmpty ? app : windowTitle
+
+        let alreadyGentle: Bool
+        if case .gentle = state { alreadyGentle = true } else { alreadyGentle = false }
+
+        // Update state and display
+        state = .gentle(app: app, windowTitle: windowTitle)
         onGentleNudge?(displayName, info.intention)
 
-        escalationTimer = Timer.scheduledTimer(withTimeInterval: Double(appearanceManager.gentleNudgeDelay), repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.escalationTimer = nil
-                self?.escalateToFlash()
+        // Only start escalation timer if not already in gentle (don't reset countdown on app change)
+        if !alreadyGentle {
+            cancelTimer(&escalationTimer)
+            escalationTimer = Timer.scheduledTimer(withTimeInterval: Double(appearanceManager.gentleNudgeDelay), repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    self?.escalationTimer = nil
+                    self?.escalateToFlash()
+                }
             }
         }
     }
