@@ -8,6 +8,7 @@ struct TimelineNode: Identifiable {
     let event: TransitionEvent
     let rail: Int          // which vertical rail this node sits on
     let row: Int           // vertical position (0 = first event)
+    var completedByNext: Bool = false  // the next transition was a completion
 }
 
 /// A connector between two nodes — vertical (same rail) or horizontal (cross-rail).
@@ -19,6 +20,7 @@ struct TimelineConnector: Identifiable {
     let toRow: Int
     let type: TransitionEvent.TransitionType
     let duration: TimeInterval  // seconds between from and to events
+    let timeboxMinutes: Int?    // intended timebox of the from node's todo
 }
 
 /// Pre-processed layout derived from raw events.
@@ -65,8 +67,13 @@ struct TimelineLayout {
                     toRail: rail,
                     toRow: row,
                     type: event.type,
-                    duration: elapsed
+                    duration: elapsed,
+                    timeboxMinutes: prevNode.event.to.timeboxMinutes
                 ))
+                // Mark the from-node as completed if this transition is a completion
+                if event.type == .completion {
+                    nodes[row - 1].completedByNext = true
+                }
             }
         }
 
@@ -270,18 +277,23 @@ struct MirrorView: View {
         let y = nodeY(node.row, totalRows: lay.nodes.count)
         let isInterruption = node.event.type == .interruption ||
                              node.event.to.contextLabel == "⚡ Interruption"
+        let isCompleted = node.completedByNext
+
+        let dotColor: Color = isCompleted ? .green.opacity(0.7) :
+                              isInterruption ? .orange.opacity(0.7) :
+                              .primary.opacity(0.35)
 
         return VStack(spacing: 0) {
             // The node dot
             Circle()
-                .fill(isInterruption ? Color.orange.opacity(0.7) : Color.primary.opacity(0.35))
+                .fill(dotColor)
                 .frame(width: nodeRadius * 2, height: nodeRadius * 2)
 
             // Label below node
             VStack(spacing: 1) {
                 Text(node.event.to.todoText)
                     .font(.system(size: 12 * zoomLevel, weight: .regular, design: .serif))
-                    .foregroundColor(.primary.opacity(0.8))
+                    .foregroundColor(isCompleted ? .green.opacity(0.8) : .primary.opacity(0.8))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
 
@@ -304,7 +316,10 @@ struct MirrorView: View {
         let toY = nodeY(conn.toRow, totalRows: lay.nodes.count) + nodeRadius
 
         let isInterruption = conn.type == .interruption
-        let color = isInterruption ? Color.orange.opacity(0.4) : Color.primary.opacity(0.1)
+        let isCompletion = conn.type == .completion
+        let color: Color = isCompletion ? .green.opacity(0.3) :
+                           isInterruption ? .orange.opacity(0.4) :
+                           .primary.opacity(0.1)
 
         let midX = (fromX + toX) / 2
         let midY = (fromY + toY) / 2
@@ -328,10 +343,17 @@ struct MirrorView: View {
             ))
 
             // Duration label at midpoint of connector
-            Text(durationLabel(conn.duration))
-                .font(.system(size: 9 * zoomLevel, weight: .regular, design: .monospaced))
-                .foregroundColor(.secondary.opacity(0.5))
-                .position(x: conn.fromRail == conn.toRail ? midX + 24 * zoomLevel : midX, y: midY)
+            VStack(spacing: 1) {
+                if let tb = conn.timeboxMinutes {
+                    Text("\(tb)m intended")
+                        .font(.system(size: 8 * zoomLevel, weight: .light, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.35))
+                }
+                Text(durationLabel(conn.duration))
+                    .font(.system(size: 9 * zoomLevel, weight: .regular, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+            .position(x: conn.fromRail == conn.toRail ? midX + 30 * zoomLevel : midX, y: midY)
         }
     }
 

@@ -5,6 +5,7 @@ struct CognitiveSnapshot: Codable, Sendable, Equatable {
     let contextLabel: String
     let todoId: UUID
     let todoText: String
+    var timeboxMinutes: Int?
 }
 
 struct TransitionEvent: Codable, Sendable, Identifiable, Equatable {

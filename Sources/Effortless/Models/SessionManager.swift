@@ -536,7 +536,8 @@ class SessionManager: ObservableObject {
             contextId: contexts[activeIndex].id,
             contextLabel: contexts[activeIndex].label,
             todoId: todo?.id ?? contexts[activeIndex].id,
-            todoText: todo?.text ?? "(idle)"
+            todoText: todo?.text ?? "(idle)",
+            timeboxMinutes: todo?.timeboxMinutes
         )
     }
 
@@ -547,7 +548,8 @@ class SessionManager: ObservableObject {
             contextId: contexts[index].id,
             contextLabel: contexts[index].label,
             todoId: todo?.id ?? contexts[index].id,
-            todoText: todo?.text ?? "(idle)"
+            todoText: todo?.text ?? "(idle)",
+            timeboxMinutes: todo?.timeboxMinutes
         )
     }
 
