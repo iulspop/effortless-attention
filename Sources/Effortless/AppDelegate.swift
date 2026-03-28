@@ -418,7 +418,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Dismiss altar if open — only one fullscreen surface at a time
         if altarWindow != nil { dismissAltar() }
 
-        let mirrorView = MirrorView(transitionLogger: transitionLogger) { [weak self] in
+        let contextOrder = sessionManager.contexts.map { (id: $0.id, label: $0.label) }
+        let mirrorView = MirrorView(transitionLogger: transitionLogger, contextOrder: contextOrder) { [weak self] in
             self?.dismissMirror()
         }
 

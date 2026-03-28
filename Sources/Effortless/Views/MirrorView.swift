@@ -33,22 +33,53 @@ struct TimelineLayout {
     let railCount: Int
 
     /// Build layout from a list of transition events.
-    static func build(from events: [TransitionEvent]) -> TimelineLayout {
+    /// - contextOrder: current altar context order as (id, label) pairs. Rails follow this order,
+    ///   with interruptions always last.
+    static func build(from events: [TransitionEvent],
+                      contextOrder: [(id: UUID, label: String)] = []) -> TimelineLayout {
         guard !events.isEmpty else {
             return TimelineLayout(nodes: [], connectors: [], railLabels: [], railCount: 0)
         }
 
-        // Assign each context to a rail. Interruptions get ephemeral rails to the right.
+        // Pre-assign rails from altar context order, then add any extras from events.
         var contextToRail: [UUID: Int] = [:]
         var railLabels: [String] = []
         var nextRail = 0
+        var interruptionRail: Int? = nil
+
+        // First: assign rails in altar order (skip interruptions — they go last)
+        for ctx in contextOrder {
+            if contextToRail[ctx.id] == nil {
+                contextToRail[ctx.id] = nextRail
+                railLabels.append(ctx.label)
+                nextRail += 1
+            }
+        }
 
         func railFor(_ contextId: UUID, label: String) -> Int {
+            // All interruption contexts share one rail (always last)
+            if label.hasPrefix("⚡") {
+                if let r = interruptionRail { return r }
+                let r = nextRail
+                interruptionRail = r
+                railLabels.append("⚡ Interruption")
+                nextRail += 1
+                return r
+            }
             if let r = contextToRail[contextId] { return r }
-            let r = nextRail
-            contextToRail[contextId] = r
-            railLabels.append(label)
-            nextRail += 1
+            // Context not in altar order (deleted?) — append after known contexts
+            let r = interruptionRail != nil ? interruptionRail! : nextRail
+            if interruptionRail != nil {
+                // Shift interruption rail right to keep it last
+                contextToRail[contextId] = r
+                railLabels.insert(label, at: r)
+                interruptionRail = r + 1
+                nextRail += 1
+            } else {
+                contextToRail[contextId] = r
+                railLabels.append(label)
+                nextRail += 1
+            }
             return r
         }
 
@@ -106,6 +137,7 @@ struct TimelineLayout {
 
 struct MirrorView: View {
     let transitionLogger: TransitionLogger
+    let contextOrder: [(id: UUID, label: String)]
     var onDismiss: () -> Void = {}
 
     @State private var currentTime = Date()
@@ -122,7 +154,7 @@ struct MirrorView: View {
     private let zoomStep: CGFloat = 0.2
 
     private var layout: TimelineLayout {
-        TimelineLayout.build(from: events)
+        TimelineLayout.build(from: events, contextOrder: contextOrder)
     }
 
     private var isToday: Bool {
