@@ -166,9 +166,9 @@ class NudgeManager: ObservableObject {
                 lastDistractingContext = ctx
                 beginGentleNudge(app: ctx.appName, windowTitle: ctx.windowTitle)
             } else {
-                // LLM says not distracted — if we were nudging, stop
+                // LLM says not distracted — clear tracking so future changes are assessed
+                lastDistractingContext = nil
                 if state != .idle {
-                    lastDistractingContext = nil
                     transitionTo(.idle)
                 }
             }
