@@ -97,8 +97,8 @@ class SessionManager: ObservableObject {
     func pause() {
         guard !isPaused else { return }
         accumulateElapsed(at: activeIndex)
-        stopTimer()
         isPaused = true
+        stopTimer()
         notifyChange()
     }
 
@@ -129,7 +129,7 @@ class SessionManager: ObservableObject {
         guard activeIndex >= 0, activeIndex < contexts.count,
               let todoIndex = contexts[activeIndex].currentTodoIndex else { return }
         contexts[activeIndex].todos[todoIndex].timeboxMinutes += minutes
-        startTimer()
+        if !isPaused { startTimer() }
         notifyChange()
     }
 
@@ -443,6 +443,7 @@ class SessionManager: ObservableObject {
     }
 
     private func tick() {
+        guard !isPaused else { return }
         guard activeIndex >= 0, activeIndex < contexts.count else { return }
         guard let todoIndex = contexts[activeIndex].currentTodoIndex else {
             remainingTimeFormatted = ""
@@ -472,6 +473,7 @@ class SessionManager: ObservableObject {
     }
 
     private func accumulateElapsed(at index: Int) {
+        guard !isPaused else { return }
         guard index >= 0, index < contexts.count else { return }
         guard let todoIndex = contexts[index].currentTodoIndex else { return }
         let now = Date()
