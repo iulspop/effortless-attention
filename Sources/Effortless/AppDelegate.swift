@@ -961,7 +961,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         dismissGentleNudge()
         dismissSharpPrompt()
 
-        let intention = sessionManager.activeContext?.currentTodo?.text ?? "your intention"
+        let ctx = sessionManager.activeContext
+        let todoText = ctx?.currentTodo?.text ?? "your intention"
+        let intention = ctx.map { "[\($0.label)] \(todoText)" } ?? todoText
 
         let view = SharpPromptView(
             intention: intention,

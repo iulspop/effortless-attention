@@ -192,13 +192,14 @@ class NudgeManager: ObservableObject {
         guard let info = intentionProvider?() else { return }
         lastNudgedIntention = info.intention
         let displayName = windowTitle.isEmpty ? app : windowTitle
+        let intentionDisplay = "[\(info.contextLabel)] \(info.intention)"
 
         let alreadyGentle: Bool
         if case .gentle = state { alreadyGentle = true } else { alreadyGentle = false }
 
         // Update state and display
         state = .gentle(app: app, windowTitle: windowTitle)
-        onGentleNudge?(displayName, info.intention)
+        onGentleNudge?(displayName, intentionDisplay)
 
         // Only start escalation timer if not already in gentle (don't reset countdown on app change)
         if !alreadyGentle {
