@@ -274,6 +274,7 @@ struct MirrorView: View {
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(isSelected ? Color.primary.opacity(0.3) : Color.secondary.opacity(0.2), lineWidth: 1)
                             )
+                            .contentShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
                 }
@@ -320,9 +321,11 @@ struct MirrorView: View {
                                 connectorPath(conn, layout: lay)
                             }
 
-                            // Now marker
-                            nowMarker(layout: lay)
-                                .id("now")
+                            // Now marker (today only)
+                            if isToday {
+                                nowMarker(layout: lay)
+                                    .id("now")
+                            }
                         }
                         .frame(width: gw, height: gh)
                         // Nodes as individual overlays
@@ -363,6 +366,7 @@ struct MirrorView: View {
         let firstTime = first.event.timestamp
         let now = Date()
         let totalRows = nodes.count
+        let showingToday = isToday
 
         let cal = Calendar.current
         let fmt = DateFormatter()
@@ -384,7 +388,10 @@ struct MirrorView: View {
             isHour: false
         ))
 
-        // Add 30-min interval marks between first event and now
+        // For past days, stop at the last event; for today, extend to now
+        let endTime = showingToday ? now : last.event.timestamp
+
+        // Add 30-min interval marks between first event and end time
         let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: firstTime)
         let minute = comps.minute ?? 0
         let nextHalf = minute < 30 ? 30 : 60
@@ -392,20 +399,29 @@ struct MirrorView: View {
                                  minute: nextHalf == 60 ? 0 : 30,
                                  second: 0, of: firstTime)!
 
-        while markDate < now {
+        while markDate < endTime {
             let y = interpolatedY(for: markDate, nodes: nodes, now: now)
             let isHour = cal.component(.minute, from: markDate) == 0
             marks.append(TimeMark(label: fmt.string(from: markDate), y: y, isHour: isHour))
             markDate = cal.date(byAdding: .minute, value: 30, to: markDate)!
         }
 
-        // Always show "now" time
-        let nowY = nodeY(totalRows, totalRows: totalRows)
-        marks.append(TimeMark(
-            label: fmt.string(from: now),
-            y: nowY,
-            isHour: false
-        ))
+        if showingToday {
+            // Show "now" time at the bottom
+            let nowY = nodeY(totalRows, totalRows: totalRows)
+            marks.append(TimeMark(
+                label: fmt.string(from: now),
+                y: nowY,
+                isHour: false
+            ))
+        } else {
+            // Show last event time
+            marks.append(TimeMark(
+                label: fmt.string(from: last.event.timestamp),
+                y: nodeY(last.row, totalRows: totalRows),
+                isHour: false
+            ))
+        }
 
         return AnyView(
             ZStack {
