@@ -105,13 +105,16 @@ struct TimelineLayout {
 // MARK: - View
 
 struct MirrorView: View {
-    let events: [TransitionEvent]
+    let transitionLogger: TransitionLogger
     var onDismiss: () -> Void = {}
 
     @State private var currentTime = Date()
     @State private var keyMonitor: Any?
     @State private var magnifyMonitor: Any?
     @State private var zoomLevel: CGFloat = 1.0
+    @State private var selectedDay: Date = Calendar.current.startOfDay(for: Date())
+    @State private var availableDays: [Date] = []
+    @State private var events: [TransitionEvent] = []
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private let minZoom: CGFloat = 0.3
@@ -120,6 +123,10 @@ struct MirrorView: View {
 
     private var layout: TimelineLayout {
         TimelineLayout.build(from: events)
+    }
+
+    private var isToday: Bool {
+        Calendar.current.isDateInToday(selectedDay)
     }
 
     // Base layout constants (scaled by zoomLevel)
@@ -135,15 +142,14 @@ struct MirrorView: View {
 
             VStack(spacing: 0) {
                 // Header
-                Text(currentTime, format: .dateTime.hour().minute())
-                    .font(.system(size: 15, weight: .light, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 80)
-
                 Text("Mirror")
                     .font(.system(size: 13, weight: .regular, design: .serif))
                     .foregroundColor(.secondary)
-                    .padding(.top, 8)
+                    .padding(.top, 40)
+
+                // Day pills
+                dayPills
+                    .padding(.top, 12)
 
                 if events.isEmpty {
                     Spacer()
@@ -156,8 +162,9 @@ struct MirrorView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onReceive(timer) { currentTime = $0 }
-        .onAppear { installKeyMonitor(); installMagnificationMonitor() }
+        .onAppear { loadData(); installKeyMonitor(); installMagnificationMonitor() }
         .onDisappear { removeKeyMonitor() }
+        .onChange(of: selectedDay) { _, _ in loadDayEvents() }
     }
 
     // MARK: - Key Monitor
@@ -222,14 +229,67 @@ struct MirrorView: View {
         }
     }
 
+    // MARK: - Data Loading
+
+    private func loadData() {
+        availableDays = transitionLogger.availableDays()
+        // Ensure today is always in the list
+        let today = Calendar.current.startOfDay(for: Date())
+        if !availableDays.contains(today) {
+            availableDays.insert(today, at: 0)
+        }
+        loadDayEvents()
+    }
+
+    private func loadDayEvents() {
+        events = transitionLogger.loadDay(for: selectedDay)
+    }
+
+    // MARK: - Day Pills
+
+    private static let pillDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d"
+        return f
+    }()
+
+    private var dayPills: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(availableDays, id: \.self) { day in
+                    let isSelected = Calendar.current.isDate(day, inSameDayAs: selectedDay)
+                    let label = Calendar.current.isDateInToday(day) ? "Today" : Self.pillDateFormatter.string(from: day)
+
+                    Button(action: { selectedDay = day }) {
+                        Text(label)
+                            .font(.system(size: 12, weight: isSelected ? .medium : .regular, design: .monospaced))
+                            .foregroundColor(isSelected ? .primary : .secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(isSelected ? Color.primary.opacity(0.1) : Color.clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(isSelected ? Color.primary.opacity(0.3) : Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 40)
+        }
+    }
+
     // MARK: - Empty State
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text("No transitions yet today.")
+            Text(isToday ? "No transitions yet today." : "No transitions on this day.")
                 .font(.system(size: 18, weight: .regular, design: .serif))
                 .foregroundColor(.primary.opacity(0.6))
-            Text("Declare an intention to begin.")
+            Text(isToday ? "Declare an intention to begin." : "")
                 .font(.system(size: 14, weight: .regular, design: .serif))
                 .foregroundColor(.secondary)
         }

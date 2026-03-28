@@ -31,9 +31,29 @@ struct TransitionLogger {
     }
 
     func loadToday() -> [TransitionEvent] {
+        loadDay(for: Date())
+    }
+
+    func loadDay(for date: Date) -> [TransitionEvent] {
         let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: Date())
-        return loadAll().filter { $0.timestamp >= startOfDay }
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        return loadAll().filter { $0.timestamp >= startOfDay && $0.timestamp < endOfDay }
+    }
+
+    /// Returns all unique days that have transition events, sorted newest first.
+    func availableDays() -> [Date] {
+        let calendar = Calendar.current
+        let all = loadAll()
+        var seen = Set<DateComponents>()
+        var days: [Date] = []
+        for event in all {
+            let comps = calendar.dateComponents([.year, .month, .day], from: event.timestamp)
+            if seen.insert(comps).inserted {
+                days.append(calendar.startOfDay(for: event.timestamp))
+            }
+        }
+        return days.sorted(by: >)
     }
 
     private func save(_ events: [TransitionEvent]) {

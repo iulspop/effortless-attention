@@ -404,8 +404,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Dismiss altar if open — only one fullscreen surface at a time
         if altarWindow != nil { dismissAltar() }
 
-        let events = transitionLogger.loadToday()
-        let mirrorView = MirrorView(events: events) { [weak self] in
+        let mirrorView = MirrorView(transitionLogger: transitionLogger) { [weak self] in
             self?.dismissMirror()
         }
 
