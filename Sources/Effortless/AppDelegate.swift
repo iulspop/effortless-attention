@@ -173,7 +173,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else if sessionManager.isInInterruption, let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
             statusItem.button?.title = " ⚡ \(ctx.currentTodo?.text ?? "Interruption") \(sessionManager.remainingTimeFormatted)"
         } else if let ctx = sessionManager.activeContext, ctx.hasActiveIntention {
-            statusItem.button?.title = " \(ctx.label) \(sessionManager.remainingTimeFormatted)"
+            let short = ctx.label.count > 5 ? String(ctx.label.prefix(5)) + "…" : ctx.label
+            statusItem.button?.title = " \(short) \(sessionManager.remainingTimeFormatted)"
         } else {
             statusItem.button?.title = ""
         }
