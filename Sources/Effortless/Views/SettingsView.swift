@@ -5,11 +5,31 @@ struct SettingsView: View {
     @ObservedObject var hotkeyManager: HotkeyManager
     @State private var showNudgeInfo = false
     @State private var showModelInfo = false
+    @State private var updateStatus: UpdateStatus = .idle
+
+    enum UpdateStatus: Equatable {
+        case idle
+        case checking
+        case available(String)
+        case upToDate
+        case updating
+        case failed(String)
+    }
+
+    private var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Settings")
-                .font(.system(size: 18, weight: .medium, design: .serif))
+            HStack {
+                Text("Settings")
+                    .font(.system(size: 18, weight: .medium, design: .serif))
+                Spacer()
+                Text("v\(currentVersion)")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Appearance")
@@ -197,8 +217,121 @@ struct SettingsView: View {
                     KeyRecorderView(action: action, hotkeyManager: hotkeyManager)
                 }
             }
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    switch updateStatus {
+                    case .idle:
+                        Button("Check for updates") { checkForUpdates() }
+                            .font(.system(size: 12))
+                    case .checking:
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking…")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    case .available(let latest):
+                        Text("v\(latest) available")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.orange)
+                        Button("Install & restart") { installUpdate() }
+                            .font(.system(size: 12))
+                    case .upToDate:
+                        Text("Up to date")
+                            .font(.system(size: 12))
+                            .foregroundColor(.green)
+                    case .updating:
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Updating…")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    case .failed(let msg):
+                        Text(msg)
+                            .font(.system(size: 11))
+                            .foregroundColor(.red)
+                        Button("Retry") { checkForUpdates() }
+                            .font(.system(size: 12))
+                    }
+                }
+            }
         }
         .padding(24)
         .frame(width: 360)
+    }
+
+    private func checkForUpdates() {
+        updateStatus = .checking
+        Task {
+            do {
+                let url = URL(string: "https://api.github.com/repos/iulspop/effortless-attention/releases/latest")!
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let tagName = json["tag_name"] as? String else {
+                    updateStatus = .failed("Could not parse release info")
+                    return
+                }
+                let latest = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+                if latest != currentVersion && currentVersion != "dev" {
+                    updateStatus = .available(latest)
+                } else {
+                    updateStatus = .upToDate
+                }
+            } catch {
+                updateStatus = .failed("Could not reach GitHub")
+            }
+        }
+    }
+
+    private func installUpdate() {
+        updateStatus = .updating
+        Task.detached {
+            let brewPath = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/brew")
+                ? "/opt/homebrew/bin/brew" : "/usr/local/bin/brew"
+            let env = ProcessInfo.processInfo.environment
+
+            // Sync tap first
+            let update = Process()
+            update.executableURL = URL(fileURLWithPath: brewPath)
+            update.arguments = ["update"]
+            update.environment = env
+            update.standardOutput = FileHandle.nullDevice
+            update.standardError = FileHandle.nullDevice
+            try? update.run()
+            update.waitUntilExit()
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: brewPath)
+            process.arguments = ["upgrade", "effortless"]
+            process.environment = env
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                if process.terminationStatus == 0 {
+                    // Relaunch the app
+                    let appPath = Bundle.main.bundlePath
+                    let relaunch = Process()
+                    relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                    relaunch.arguments = ["-n", appPath]
+                    try relaunch.run()
+                    DispatchQueue.main.async { NSApp.terminate(nil) }
+                } else {
+                    let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                    await MainActor.run {
+                        updateStatus = .failed(output.contains("already installed") ? "Already up to date" : "brew upgrade failed")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    updateStatus = .failed("brew not found at /opt/homebrew/bin/brew")
+                }
+            }
+        }
     }
 }
