@@ -21,6 +21,7 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
                 Text("Settings")
@@ -258,7 +259,9 @@ struct SettingsView: View {
             }
         }
         .padding(24)
+        }
         .frame(width: 360)
+        .frame(maxHeight: 600)
     }
 
     private func checkForUpdates() {
